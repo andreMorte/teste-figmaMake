@@ -1,0 +1,6 @@
+{
+  "name": "UX Test Lab Verification Engine",
+  "description": "Motor de validação e verificação de instrumentação de protótipos Figma Make via SDK UXLab em tempo de execução.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

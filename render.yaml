@@ -1,0 +1,19 @@
+# Blueprint do Render: New + > Blueprint > selecione este repositório
+# Plano Free: sem disco persistente -> os dados ficam no Postgres grátis (Neon) via DATABASE_URL
+services:
+  - type: web
+    name: ux-test-lab
+    runtime: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Cole a connection string do Neon (postgresql://...?sslmode=require)
+      - key: DATABASE_URL
+        sync: false
+      # URL pública do serviço (ex.: https://ux-test-lab.onrender.com)
+      - key: APP_URL
+        sync: false
