@@ -68,7 +68,7 @@
   function isVisible(el) {
     if (!el || !el.getBoundingClientRect) return false;
     var r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) return false;
+    if (r.width <= 0 || r.height <= 0) return false; // texto que transborda pode ter largura ~1px
     var s = window.getComputedStyle(el);
     if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0) return false;
     if (el.closest && el.closest('[aria-hidden="true"],[hidden],[inert]')) return false;
@@ -149,14 +149,16 @@
 
   // React costuma quebrar "{atual} de {total}" em vários nós de texto: testamos o elemento pai.
   var STEP_PATTERN = /\b(?:etapa|passo|step)\s*(\d{1,2})(?:\s*(?:de|of|\/)\s*(\d{1,2}))?\b|\b(\d{1,2})\s*(de|of|\/)\s*(\d{1,2})\b/i;
+  var PAGINATION = /p[aá]gina|page|resultado|registro|ite(m|ns)|linha|mostrando|exibindo/i;
   function matchStep(text) {
+    if (PAGINATION.test(text)) return ''; // "Página 1 de 10" é paginação, não etapa
     var m = text.match(STEP_PATTERN);
     if (!m) return '';
     if (m[3]) {
       var a = parseInt(m[3], 10);
       var b = parseInt(m[5], 10);
       // descarta datas (15/03), zeros à esquerda e frações improváveis
-      if (/^0/.test(m[3]) || /^0/.test(m[5]) || a < 1 || a > b || b > 12) return '';
+      if (/^0/.test(m[3]) || /^0/.test(m[5]) || a < 1 || a > b || b < 2 || b > 8) return '';
       if (m[4] === '/' && b > 8) return '';
     }
     return clean(m[0]);
@@ -245,18 +247,20 @@
     if (blocks.length) {
       var maxScore = 0;
       for (var b = 0; b < blocks.length; b++) if (blocks[b].score > maxScore) maxScore = blocks[b].score;
+      // Faixa tipográfica superior (relativa), em ordem do DOM: o resultado não depende
+      // de qual título ficou maior em cada breakpoint (desktop x mobile).
+      var tierMin = Math.max(14, maxScore * 0.75);
       var titleIdx = -1;
       for (var k = 0; k < blocks.length; k++) {
-        if (blocks[k].score >= maxScore - 1.5 && blocks[k].fs >= 14) {
+        if (blocks[k].score >= tierMin) {
           titleIdx = k;
           break;
         }
       }
       if (titleIdx === -1) titleIdx = 0;
       title = blocks[titleIdx].text;
-      var titleFs = blocks[titleIdx].fs;
       for (var n = titleIdx + 1; n < blocks.length; n++) {
-        if (blocks[n].text !== title && blocks[n].fs >= Math.max(16, titleFs * 0.75)) {
+        if (blocks[n].text !== title && blocks[n].score >= tierMin && blocks[n].fs >= 16) {
           subtitle = blocks[n].text;
           break;
         }

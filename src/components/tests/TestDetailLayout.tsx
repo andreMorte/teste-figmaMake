@@ -19,6 +19,7 @@ import {
 } from '../../services/dataService';
 import { getShareableTestUrl } from '../../utils/figmaUtils';
 import { ClickZoningHeatmapView } from '../analytics/ClickZoningHeatmapView';
+import { JourneyVisualizer } from '../analytics/JourneyVisualizer';
 import {
   Activity,
   Award,
@@ -77,6 +78,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
   const [screenHeatmaps, setScreenHeatmaps] = useState<ScreenHeatmapData[]>([]);
   const [componentZones, setComponentZones] = useState<ComponentClickZone[]>([]);
   const [sessions, setSessions] = useState<ParticipantSession[]>([]);
+  const [isDemo, setIsDemo] = useState(false);
   const [personas, setPersonas] = useState<SyntheticPersona[]>([]);
   const [insights, setInsights] = useState<UXInsight[]>([]);
 
@@ -100,6 +102,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
       setFunnel(res.funnel);
       setHeatmap(res.heatmap);
       setSessions(res.sessions);
+      setIsDemo(!!res.isDemo);
       if (res.screenHeatmaps) setScreenHeatmaps(res.screenHeatmaps);
       if (res.componentZones) setComponentZones(res.componentZones);
 
@@ -657,92 +660,8 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'journey' && (
         <div className="space-y-6">
-          {/* Visual Journey Flow */}
-          <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-5">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                <Compass className="w-5 h-5 text-blue-600" />
-                <span>Visualizador de Jornada: Nós, Tráfego e Pontos de Fricção</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Volume proporcional de participantes por etapa. Destaque em âmbar para laços pendulares de retorno.
-              </p>
-            </div>
-
-            {/* Visual Node Graph */}
-            <div className="p-6 rounded-xl bg-slate-50 border border-slate-200/80 text-xs space-y-6">
-              <div className="flex items-center justify-between overflow-x-auto py-3 px-2 gap-4">
-                {/* Node: Home */}
-                <div className="p-3.5 rounded-xl bg-white border-2 border-blue-500 text-center min-w-[110px] shadow-xs">
-                  <div className="text-[10px] text-slate-400 uppercase font-bold">Início</div>
-                  <div className="font-bold text-slate-900 mt-1">HOME</div>
-                  <div className="text-[11px] text-blue-600 font-bold mt-1">100% (20 u)</div>
-                </div>
-
-                <div className="flex flex-col items-center shrink-0">
-                  <span className="text-[10px] text-slate-500 font-medium">95% direto</span>
-                  <div className="w-14 h-1.5 bg-blue-500 rounded-full my-1" />
-                </div>
-
-                {/* Node: Dados Veículo */}
-                <div className="p-3.5 rounded-xl bg-white border-2 border-blue-500 text-center min-w-[110px] shadow-xs">
-                  <div className="text-[10px] text-slate-400 uppercase font-bold">Etapa 1</div>
-                  <div className="font-bold text-slate-900 mt-1">VEÍCULO</div>
-                  <div className="text-[11px] text-blue-600 font-bold mt-1">95% (19 u)</div>
-                </div>
-
-                <div className="flex flex-col items-center shrink-0">
-                  <span className="text-[10px] text-amber-600 font-bold">38% retorno</span>
-                  <div className="w-14 h-1.5 bg-amber-500 rounded-full my-1" />
-                </div>
-
-                {/* Node: Coberturas (Friction point) */}
-                <div className="p-3.5 rounded-xl bg-amber-50/70 border-2 border-amber-500 text-center min-w-[120px] relative shadow-xs">
-                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-bold uppercase shadow-xs">
-                    Fricção
-                  </span>
-                  <div className="text-[10px] text-amber-700 uppercase font-bold">Etapa 2</div>
-                  <div className="font-bold text-amber-900 mt-1">COBERTURAS</div>
-                  <div className="text-[11px] text-amber-700 font-bold mt-1">85% (17 u)</div>
-                </div>
-
-                <div className="flex flex-col items-center shrink-0">
-                  <span className="text-[10px] text-blue-600 font-medium">100% avanço</span>
-                  <div className="w-14 h-1.5 bg-blue-500 rounded-full my-1" />
-                </div>
-
-                {/* Node: Resumo */}
-                <div className="p-3.5 rounded-xl bg-white border-2 border-blue-500 text-center min-w-[110px] shadow-xs">
-                  <div className="text-[10px] text-slate-400 uppercase font-bold">Etapa 3</div>
-                  <div className="font-bold text-slate-900 mt-1">RESUMO</div>
-                  <div className="text-[11px] text-blue-600 font-bold mt-1">85% (17 u)</div>
-                </div>
-
-                <div className="flex flex-col items-center shrink-0">
-                  <span className="text-[10px] text-emerald-600 font-medium">100% confirmou</span>
-                  <div className="w-14 h-1.5 bg-emerald-500 rounded-full my-1" />
-                </div>
-
-                {/* Node: Sucesso */}
-                <div className="p-3.5 rounded-xl bg-emerald-50 border-2 border-emerald-500 text-center min-w-[110px] shadow-xs">
-                  <div className="text-[10px] text-emerald-700 uppercase font-bold">Final</div>
-                  <div className="font-bold text-emerald-900 mt-1">SUCESSO</div>
-                  <div className="text-[11px] text-emerald-700 font-bold mt-1">80% Total</div>
-                </div>
-              </div>
-
-              {/* Friction Explanation Callout */}
-              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-slate-800 flex items-start gap-3">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div className="text-xs leading-relaxed">
-                  <span className="text-amber-900 font-bold">Laço Pendular Detectado:</span>
-                  <span className="text-slate-700 ml-1">
-                    7 participantes (38.9%) executaram a sequência <code className="text-amber-900 bg-white px-1.5 py-0.5 rounded border border-amber-200 font-mono text-[11px]">etapa-1 → etapa-2 → etapa-1 → etapa-2 → resumo</code> para revalidar dados antes de confirmar a ação final.
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Visual Journey Flow — dados reais + prints dos cenários mapeados */}
+          {test && <JourneyVisualizer test={test} sessions={sessions} screenHeatmaps={screenHeatmaps} isDemo={isDemo} />}
 
           {/* Interactive Loss Funnel */}
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-4">

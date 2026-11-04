@@ -531,6 +531,7 @@ export async function getTestResults(testId: string): Promise<{
   componentZones: ComponentClickZone[];
   screenHeatmaps: Record<string, ScreenHeatmapData>;
   sessions: ParticipantSession[];
+  isDemo?: boolean;
 }> {
   // 1. Dados reais coletados pelo servidor (participantes de qualquer dispositivo)
   try {
@@ -546,7 +547,8 @@ export async function getTestResults(testId: string): Promise<{
           heatmap: real.heatmap || [],
           componentZones: real.componentZones || [],
           screenHeatmaps: real.screenHeatmaps || {},
-          sessions: real.sessions
+          sessions: real.sessions,
+          isDemo: false
         };
       }
     }
@@ -598,7 +600,8 @@ export async function getTestResults(testId: string): Promise<{
     heatmap: MOCK_HEATMAP_POINTS,
     componentZones: MOCK_COMPONENT_ZONES,
     screenHeatmaps: enrichedScreenHeatmaps,
-    sessions: sessions.length > 0 ? sessions : MOCK_PARTICIPANTS
+    sessions: sessions.length > 0 ? sessions : MOCK_PARTICIPANTS,
+    isDemo: true
   };
 }
 
