@@ -92,7 +92,14 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const [test, setTest] = useState<UsabilityTest | null>(null);
   const [session, setSession] = useState<ParticipantSession | null>(null);
   const [step, setStep] = useState<RunnerStep>('task_running');
-  const [participantName, setParticipantName] = useState('Participante Real (P-001)');
+  const [participantName, setParticipantName] = useState('');
+  // Jornada só começa quando o participante informa o nome e clica em "Iniciar teste"
+  const [journeyStarted, setJourneyStarted] = useState(false);
+  const [startingJourney, setStartingJourney] = useState(false);
+  // Modal exibido quando o participante chega ao último cenário mapeado da tarefa
+  const [taskDoneModal, setTaskDoneModal] = useState<null | { kind: 'next' | 'final'; finishedIdx: number }>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState(6);
+  const completingTaskRef = useRef(false);
 
   // Lifecycle & Capture state
   const [lifecycle, setLifecycle] = useState<RuntimeLifecycle>('LOADING_TEST');
@@ -187,40 +194,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           prev.map((s) => (s.step === 3 ? { ...s, status: 'running', detail: `Carregando ${effectiveProto}` } : s))
         );
 
-        // Evidence Step 6: SESSION ESTABLISHED (Automatic Session Creation)
-        try {
-          const sess = await createSession(
-            finalTest.id,
-            participantName || 'Participante Real (P-001)',
-            'human'
-          );
-          if (!isCancelled) {
-            setSession(sess);
-            setPipelineSteps((prev) =>
-              prev.map((s) =>
-                s.step === 6
-                  ? { ...s, status: 'success', detail: `${sess.sessionId} (${sess.participantName})` }
-                  : s
-              )
-            );
-
-            // Track initial SESSION_START and TASK_START
-            if (finalTest.tasks && finalTest.tasks.length > 0) {
-              const firstTask = finalTest.tasks[0];
-              trackEvent({
-                sessionId: sess.sessionId,
-                testId: finalTest.id,
-                taskId: firstTask.id,
-                screen: 'start',
-                eventType: 'TASK_START',
-                currentScreen: sdkConnected && detectedScreenId !== 'SCREEN-001' ? detectedScreenId : firstTask.expectedPath[0] || 'tela-inicial'
-              }).catch(() => {});
-            }
-          }
-        } catch (sessErr) {
-          console.warn('[ParticipantRunner] Auto session creation fallback:', sessErr);
-        }
-
+        // A sessão é criada somente quando o participante informa o nome e inicia o teste
         // Automatic transition to running task
         setStep('task_running');
         setCurrentTaskIndex(0);
@@ -314,6 +288,13 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
             currentScreen: screenId,
             metadata: { screenName, url: data.url, trigger: data.trigger, previousScreenId: data.previousScreenId }
           });
+
+          // Chegou ao último cenário mapeado da tarefa -> conclui automaticamente
+          const activeTask = test.tasks[currentTaskIndex];
+          const finalScreen = activeTask?.expectedPath?.[activeTask.expectedPath.length - 1];
+          if (journeyStarted && !taskDoneModal && finalScreen && screenId === finalScreen && !completingTaskRef.current) {
+            setTimeout(() => handleCompleteCurrentTaskRef.current(), 900);
+          }
         }
       }
 
@@ -399,11 +380,22 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [test, session, currentTaskIndex, prototypeScreen, detectedScreenId, participantName, testId]);
+  }, [test, session, currentTaskIndex, prototypeScreen, detectedScreenId, participantName, testId, journeyStarted, taskDoneModal]);
+
+  // Contagem regressiva do modal "Jornada finalizada" -> perguntas
+  useEffect(() => {
+    if (taskDoneModal?.kind !== 'final') return;
+    if (redirectCountdown <= 0) {
+      handleGoToQuestionsRef.current();
+      return;
+    }
+    const t = setTimeout(() => setRedirectCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [taskDoneModal, redirectCountdown]);
 
   // Elapsed seconds timer for active task
   useEffect(() => {
-    if (step === 'task_running') {
+    if (step === 'task_running' && journeyStarted && !taskDoneModal) {
       setTaskStartTime(Date.now());
       setTaskElapsedSeconds(0);
       setClickCounter(0);
@@ -418,7 +410,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [step, currentTaskIndex]);
+  }, [step, currentTaskIndex, journeyStarted, taskDoneModal]);
 
   // Window blur listener to detect clicks inside the Figma iframe
   useEffect(() => {
@@ -523,6 +515,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const handleCompleteCurrentTask = async () => {
     if (!session || !test) return;
     const currentTask = test.tasks[currentTaskIndex];
+    if (!currentTask || completingTaskRef.current) return;
+    completingTaskRef.current = true;
 
     await trackEvent({
       sessionId: session.sessionId,
@@ -536,44 +530,124 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
     await completeTask(session.sessionId, currentTask.id, true);
 
-    if (currentTaskIndex + 1 < test.tasks.length) {
-      const nextIdx = currentTaskIndex + 1;
-      setCurrentTaskIndex(nextIdx);
-      const nextTask = test.tasks[nextIdx];
+    // Mostra o modal de tarefa concluída; o avanço acontece a partir dele
+    setTaskDoneModal({
+      kind: currentTaskIndex + 1 < test.tasks.length ? 'next' : 'final',
+      finishedIdx: currentTaskIndex
+    });
+    setRedirectCountdown(6);
+  };
 
+  // Próxima tarefa (a partir do modal)
+  const handleStartNextTask = async () => {
+    if (!session || !test || !taskDoneModal) return;
+    const nextIdx = taskDoneModal.finishedIdx + 1;
+    const nextTask = test.tasks[nextIdx];
+    setTaskDoneModal(null);
+    completingTaskRef.current = false;
+    if (!nextTask) return;
+    setCurrentTaskIndex(nextIdx);
+    await trackEvent({
+      sessionId: session.sessionId,
+      testId: test.id,
+      taskId: nextTask.id,
+      screen: `task-${nextIdx + 1}-start`,
+      eventType: 'TASK_START',
+      currentScreen: sdkConnected && detectedScreenId !== 'SCREEN-001' ? detectedScreenId : nextTask.expectedPath[0] || `etapa-${nextIdx + 1}`
+    });
+  };
+
+  // Jornada finalizada -> perguntas
+  const handleGoToQuestions = async () => {
+    if (!session || !test) return;
+    setTaskDoneModal(null);
+    if (test.customQuestions && test.customQuestions.length > 0) {
+      setStep('custom_survey');
       await trackEvent({
         sessionId: session.sessionId,
         testId: test.id,
-        taskId: nextTask.id,
-        screen: `task-${nextIdx + 1}-start`,
-        eventType: 'TASK_START',
-        currentScreen: sdkConnected && detectedScreenId !== 'SCREEN-001' ? detectedScreenId : nextTask.expectedPath[0] || `etapa-${nextIdx + 1}`
+        screen: 'custom-survey',
+        eventType: 'CUSTOM_SURVEY_START',
+        currentScreen: 'survey'
+      });
+    } else if (test.metricConfig.sus) {
+      setStep('sus');
+      await trackEvent({
+        sessionId: session.sessionId,
+        testId: test.id,
+        screen: 'sus-questionnaire',
+        eventType: 'SUS_START',
+        currentScreen: 'sus'
       });
     } else {
-      // Finished all tasks -> Check if there are researcher custom questions
-      if (test.customQuestions && test.customQuestions.length > 0) {
-        setStep('custom_survey');
-        await trackEvent({
-          sessionId: session.sessionId,
-          testId: test.id,
-          screen: 'custom-survey',
-          eventType: 'CUSTOM_SURVEY_START',
-          currentScreen: 'survey'
-        });
-      } else if (test.metricConfig.sus) {
-        setStep('sus');
-        await trackEvent({
-          sessionId: session.sessionId,
-          testId: test.id,
-          screen: 'sus-questionnaire',
-          eventType: 'SUS_START',
-          currentScreen: 'sus'
-        });
-      } else {
-        await completeSession(session.sessionId);
-        setStep('completed');
-      }
+      await completeSession(session.sessionId);
+      setStep('completed');
     }
+  };
+
+  // Participante desiste da tarefa (pelo modal de dificuldade)
+  const handleSkipTask = async () => {
+    if (!session || !test) return;
+    const currentTask = test.tasks[currentTaskIndex];
+    if (!currentTask || completingTaskRef.current) return;
+    completingTaskRef.current = true;
+    await trackEvent({
+      sessionId: session.sessionId,
+      testId: test.id,
+      taskId: currentTask.id,
+      screen: `task-${currentTaskIndex + 1}-skip`,
+      eventType: 'TASK_ABANDON',
+      currentScreen: `task-${currentTaskIndex + 1}-abandonada`,
+      durationMs: taskElapsedSeconds * 1000,
+      metadata: { comment: difficultyComment || 'Participante não conseguiu concluir a tarefa' }
+    });
+    await completeTask(session.sessionId, currentTask.id, false);
+    setShowDifficultyModal(false);
+    setDifficultyComment('');
+    setTaskDoneModal({ kind: currentTaskIndex + 1 < test.tasks.length ? 'next' : 'final', finishedIdx: currentTaskIndex });
+    setRedirectCountdown(6);
+  };
+
+  // Início da jornada: cria a sessão com o nome informado e inicia a Tarefa 1
+  const handleBeginJourney = async () => {
+    if (!test || startingJourney) return;
+    const name = participantName.trim();
+    if (!name) return;
+    setStartingJourney(true);
+    try {
+      const sess = await createSession(test.id, name, 'human');
+      setSession(sess);
+      setPipelineSteps((prev) =>
+        prev.map((s) => (s.step === 6 ? { ...s, status: 'success', detail: `${sess.sessionId} (${sess.participantName})` } : s))
+      );
+      setCurrentTaskIndex(0);
+      completingTaskRef.current = false;
+      const firstTask = test.tasks[0];
+      if (firstTask) {
+        await trackEvent({
+          sessionId: sess.sessionId,
+          testId: test.id,
+          taskId: firstTask.id,
+          screen: 'start',
+          eventType: 'TASK_START',
+          currentScreen: sdkConnected && detectedScreenId !== 'SCREEN-001' ? detectedScreenId : firstTask.expectedPath[0] || 'tela-inicial'
+        });
+      }
+      setJourneyStarted(true);
+    } finally {
+      setStartingJourney(false);
+    }
+  };
+
+  const handleGoToQuestionsRef = useRef<() => void>(() => {});
+  handleGoToQuestionsRef.current = () => {
+    void handleGoToQuestions();
+  };
+
+  // Sempre aponta para a versão mais recente do handler (usado pelo listener de postMessage)
+  const handleCompleteCurrentTaskRef = useRef<() => void>(() => {});
+  handleCompleteCurrentTaskRef.current = () => {
+    void handleCompleteCurrentTask();
   };
 
   // Submit Researcher Custom Survey
@@ -874,6 +948,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                 <span className="hidden sm:inline">Dificuldade</span>
               </button>
 
+              {/* Conclusão manual só quando não há detecção automática (sem SDK ou tarefa sem caminho mapeado) */}
+              {journeyStarted && (!sdkConnected || !currentTask.expectedPath || currentTask.expectedPath.length === 0) && (
               <button
                 type="button"
                 onClick={handleCompleteCurrentTask}
@@ -882,6 +958,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                 <span>Concluir Tarefa</span>
                 <Check className="w-3.5 h-3.5" />
               </button>
+              )}
             </div>
           </header>
 
@@ -1189,6 +1266,123 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
             )}
           </div>
 
+          {/* Modal de entrada: nome do participante + iniciar a jornada */}
+          {!journeyStarted && (
+            <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleBeginJourney();
+                }}
+                className="max-w-md w-full bg-white rounded-2xl shadow-2xl overflow-hidden text-slate-800"
+              >
+                <div className="px-6 pt-6 pb-4 space-y-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-[11px] font-semibold">
+                    <Sparkles className="w-3.5 h-3.5" /> Teste de usabilidade
+                  </span>
+                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">{test.name}</h2>
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    Você vai usar um protótipo e realizar {test.tasks.length === 1 ? '1 tarefa' : `${test.tasks.length} tarefas`}. Não existe
+                    resposta certa ou errada: estamos avaliando a interface, não você.
+                  </p>
+                </div>
+                <div className="px-6 pb-4 space-y-3">
+                  <ol className="space-y-1.5 text-xs text-slate-600">
+                    <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">1</span>A tarefa aparece na barra do topo da tela.</li>
+                    <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">2</span>Navegue no protótipo como faria normalmente. Quando chegar ao fim, o sistema avisa sozinho.</li>
+                    <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">3</span>No final, você responde algumas perguntas rápidas.</li>
+                  </ol>
+                  <label className="block">
+                    <span className="block text-xs font-semibold text-slate-700 mb-1.5">Seu nome *</span>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={participantName}
+                      onChange={(e) => setParticipantName(e.target.value)}
+                      placeholder="Ex: Joana Silva"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-sm outline-none"
+                    />
+                  </label>
+                </div>
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 space-y-2">
+                  <button
+                    type="submit"
+                    disabled={!participantName.trim() || startingJourney}
+                    className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 transition-all"
+                  >
+                    {startingJourney ? (
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4 fill-current" />
+                    )}
+                    <span>Iniciar teste</span>
+                  </button>
+                  {!iframeLoaded && (
+                    <p className="text-[11px] text-slate-500 text-center">Carregando o protótipo...</p>
+                  )}
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Modal de tarefa concluída / jornada finalizada */}
+          {taskDoneModal && (
+            <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
+              <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl overflow-hidden text-slate-800 text-center">
+                <div className="px-6 pt-8 pb-5 space-y-3">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-emerald-100 flex items-center justify-center">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+                  </div>
+                  {taskDoneModal.kind === 'final' ? (
+                    <>
+                      <h2 className="text-xl font-bold text-slate-900">Jornada finalizada!</h2>
+                      <p className="text-sm text-slate-600 leading-relaxed">
+                        Você concluiu {test.tasks.length === 1 ? 'a tarefa' : `as ${test.tasks.length} tarefas`}. Obrigado! Agora faltam só
+                        algumas perguntas sobre a sua experiência.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="text-xl font-bold text-slate-900">Tarefa {taskDoneModal.finishedIdx + 1} concluída</h2>
+                      <p className="text-sm text-slate-600">Próxima tarefa:</p>
+                      <div className="text-left p-3.5 rounded-xl bg-blue-50 border border-blue-100">
+                        <div className="text-xs font-bold text-blue-700 uppercase">
+                          Tarefa {taskDoneModal.finishedIdx + 2} de {test.tasks.length}
+                        </div>
+                        <div className="text-sm font-semibold text-slate-900 mt-0.5">{test.tasks[taskDoneModal.finishedIdx + 1]?.title}</div>
+                        <div className="text-xs text-slate-600 mt-1 leading-relaxed">{test.tasks[taskDoneModal.finishedIdx + 1]?.instruction}</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 space-y-1.5">
+                  {taskDoneModal.kind === 'final' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleGoToQuestions}
+                        className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2"
+                      >
+                        <span>Responder perguntas</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <p className="text-[11px] text-slate-500">Redirecionando em {redirectCountdown}s...</p>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleStartNextTask}
+                      className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>Iniciar próxima tarefa</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Difficulty Modal */}
           {showDifficultyModal && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
@@ -1214,6 +1408,14 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                     className="px-3 py-1.5 rounded bg-[#1c1c1c] text-[#888] hover:text-white"
                   >
                     Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSkipTask}
+                    className="px-3 py-1.5 rounded bg-[#1c1c1c] text-rose-300 hover:text-rose-200 border border-rose-500/30"
+                    title="Registra que não conseguiu concluir e segue para a próxima etapa"
+                  >
+                    Não consigo concluir
                   </button>
                   <button
                     type="button"

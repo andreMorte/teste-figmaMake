@@ -680,7 +680,13 @@ app.post('/api/sessions/:sessionId/task-status', (req, res) => {
     session.successRate = Math.round((session.tasksCompleted / session.totalTasks) * 1000) / 10;
   }
 
-  const evtType = status === 'COMPLETED' ? 'TASK_SUCCESS' : status === 'FAILED' ? 'TASK_ERROR' : 'TASK_ABANDON';
+  const evtType = status === 'COMPLETED' ? 'TASK_SUCCESS' : status === 'FAILED' ? 'TASK_ABANDON' : 'TASK_ABANDON';
+  // O runner já registra o evento de conclusão/abandono com a duração; evita duplicar
+  const alreadyTracked = (session.events || []).some((e: any) => e.taskId === taskId && e.eventType === evtType);
+  if (alreadyTracked) {
+    updateTestCounters(session.testId);
+    return res.json({ success: true, session });
+  }
   const evt = {
     eventId: `EVT-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`,
     sessionId,
