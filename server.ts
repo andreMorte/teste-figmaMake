@@ -641,8 +641,10 @@ app.post('/api/events', (req, res) => {
     if (event.eventType === 'BACK' || event.eventType === 'RETURN') session.returnCount += 1;
     updateTestCounters(session.testId);
 
-    // Track path per task
-    if (event.taskId) {
+    // Caminho real por tarefa: apenas cenários do protótipo (ignora marcadores de tarefa/questionário)
+    const PATH_EVENTS = ['SCREEN_VIEW', 'CLICK', 'TASK_START', 'SCREEN_CHANGE', 'PAGE_VIEW', 'BACK', 'RETURN', 'INPUT'];
+    const isScreenKey = event.currentScreen && !/^(task-|etapa-\d|figma-frame|sus|survey|end|fim|inicio|start)/.test(event.currentScreen);
+    if (event.taskId && PATH_EVENTS.includes(event.eventType) && isScreenKey) {
       if (!session.actualPaths[event.taskId]) {
         session.actualPaths[event.taskId] = [];
       }
@@ -849,6 +851,18 @@ app.get('/api/tests/:id/results', (req, res) => {
       }
     });
 
+    // Frequência de caminhos
+    const freqMap = new Map<string, { path: string[]; count: number }>();
+    pathList.forEach((p) => {
+      const key = p.join('>');
+      const entry = freqMap.get(key) || { path: p, count: 0 };
+      entry.count += 1;
+      freqMap.set(key, entry);
+    });
+    const pathFrequencies = [...freqMap.values()]
+      .sort((a, b) => b.count - a.count)
+      .map((f) => ({ path: f.path, count: f.count, percentage: Math.round((f.count / pathList.length) * 100) }));
+
     // Check ideal path match
     let idealMatches = 0;
     pathList.forEach((p) => {
@@ -870,8 +884,8 @@ app.get('/api/tests/:id/results', (req, res) => {
       abandonmentCount: taskAbandonEvts.length,
       idealPathRate,
       expectedPath: t.expectedPath || [],
-      mostUsedPath: pathList[0] || t.expectedPath || [],
-      pathFrequencies: []
+      mostUsedPath: pathFrequencies[0]?.path || [],
+      pathFrequencies
     };
   });
 
@@ -1661,14 +1675,52 @@ const serverSnapshotsStore: any[] = [];
 // Serve UXLab SDK files directly
 app.use('/sdk', express.static(path.join(process.cwd(), 'public/sdk')));
 
-// Proxy Figma Make asset paths if requested on same-origin
-app.use(['/_runtimes', '/_components', '/_woff', '/_assets'], async (req, res) => {
-  const targetOrigin = (req.query.origin as string) || 'https://evil-chess-37482794.figma.site';
-  const targetUrl = `${targetOrigin}${req.originalUrl.split('?')[0]}`;
+// =========================================================================
+// PROXY DO PROTÓTIPO (mesma origem) — permite injetar o SDK UXLab
+// Figma Make carrega tudo por caminhos absolutos (/_runtimes, /_components,
+// /_json, /_woff, /__figma__...). Servimos esses caminhos aqui e buscamos no
+// site original; a origem vem de ?origin, do cookie uxlab_proto ou do Referer.
+// =========================================================================
+const PROXY_PREFIXES = ['/_runtimes', '/_components', '/_woff', '/_assets', '/_json', '/__figma__', '/_images', '/_fonts'];
+const DEFAULT_PROTO_ORIGIN = 'https://evil-chess-37482794.figma.site';
+
+function readCookie(req: express.Request, name: string): string {
+  const raw = req.headers.cookie || '';
+  const found = raw.split(';').map((c) => c.trim()).find((c) => c.startsWith(`${name}=`));
+  return found ? decodeURIComponent(found.substring(name.length + 1)) : '';
+}
+
+function resolveProtoOrigin(req: express.Request): string {
+  const fromQuery = req.query.origin as string;
+  if (fromQuery && /^https?:\/\//.test(fromQuery)) return new URL(fromQuery).origin;
+  const fromCookie = readCookie(req, 'uxlab_proto');
+  if (fromCookie && /^https?:\/\//.test(fromCookie)) return fromCookie;
   try {
-    const upstreamRes = await fetch(targetUrl);
+    const ref = req.get('referer');
+    if (ref) {
+      const u = new URL(ref).searchParams.get('url');
+      if (u) return new URL(/^https?:\/\//.test(u) ? u : `https://${u}`).origin;
+    }
+  } catch {}
+  return DEFAULT_PROTO_ORIGIN;
+}
+
+app.use(PROXY_PREFIXES, async (req, res) => {
+  const targetOrigin = resolveProtoOrigin(req);
+  const query = new URLSearchParams(req.query as Record<string, string>);
+  query.delete('origin');
+  const qs = query.toString();
+  const targetUrl = `${targetOrigin}${req.baseUrl}${req.path === '/' ? '' : req.path}${qs ? `?${qs}` : ''}`;
+  try {
+    const upstreamRes = await fetch(targetUrl, {
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      headers: { 'User-Agent': 'Mozilla/5.0 UXLabRunner/3.0', Accept: req.get('accept') || '*/*' }
+    });
+    res.status(upstreamRes.status);
     const contentType = upstreamRes.headers.get('content-type') || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
+    const cache = upstreamRes.headers.get('cache-control');
+    if (cache) res.setHeader('Cache-Control', cache);
     res.setHeader('Access-Control-Allow-Origin', '*');
     const buffer = await upstreamRes.arrayBuffer();
     res.send(Buffer.from(buffer));
@@ -1677,24 +1729,25 @@ app.use(['/_runtimes', '/_components', '/_woff', '/_assets'], async (req, res) =
   }
 });
 
-// Proxy and instrument the real prototype HTML
+// Carrega o HTML real do protótipo e injeta o SDK de telemetria/mapeamento
 app.get('/api/prototype-runtime', async (req, res) => {
-  const rawUrl = (req.query.url as string) || 'https://evil-chess-37482794.figma.site';
-  const testId = (req.query.testId as string) || 'TEST-U92DU';
-  const trackingId = (req.query.trackingId as string) || 'UX-QK8UY';
-  const sessionId = (req.query.sessionId as string) || 'SESSION-001';
-  const participantId = (req.query.participantId as string) || 'P-001';
+  const rawUrl = (req.query.url as string) || DEFAULT_PROTO_ORIGIN;
+  const esc = (v: string) => String(v).replace(/[^A-Za-z0-9_\-.:]/g, '');
+  const testId = esc((req.query.testId as string) || '');
+  const trackingId = esc((req.query.trackingId as string) || '');
+  const sessionId = esc((req.query.sessionId as string) || '');
+  const participantId = esc((req.query.participantId as string) || '');
+  const mode = (req.query.mode as string) === 'map' ? 'map' : 'run';
 
   try {
     let targetUrl = rawUrl.trim();
     if (!/^https?:\/\//i.test(targetUrl)) {
       targetUrl = `https://${targetUrl}`;
     }
+    const urlObj = new URL(targetUrl);
 
     const upstream = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) UXLabRunner/2.0'
-      }
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) UXLabRunner/3.0' }
     });
 
     if (!upstream.ok) {
@@ -1703,39 +1756,43 @@ app.get('/api/prototype-runtime', async (req, res) => {
         status: upstream.status,
         statusText: upstream.statusText,
         url: targetUrl,
-        diagnostic: `O protótipo em [${targetUrl}] retornou código HTTP ${upstream.status}. Nenhuma interface sintética é carregada.`
+        diagnostic: `O protótipo em [${targetUrl}] retornou código HTTP ${upstream.status}.`
       });
     }
 
     let html = await upstream.text();
-    const urlObj = new URL(targetUrl);
     const targetOrigin = urlObj.origin;
 
-    // Inject base tag for asset resolution and UXLab SDK scripts
+    // URLs absolutas do próprio site passam a ser servidas pelo proxy
+    html = html.split(`${targetOrigin}/`).join('/');
+
+    // Sem <base>: os caminhos absolutos (/_runtimes, /_json...) caem no proxy acima.
+    // O roteador do site precisa ver o caminho original do protótipo, não /api/prototype-runtime.
+    const routePath = JSON.stringify((urlObj.pathname || '/') + urlObj.search + urlObj.hash);
     const headInjection = `
-      <base href="${targetOrigin}/">
+      <script>try{history.replaceState(history.state,'',${routePath});}catch(e){}</script>
       <script src="/sdk/html2canvas.min.js"></script>
-      <script src="/sdk/uxlab-runtime-sdk.js" data-test-id="${testId}" data-tracking-id="${trackingId}" data-session-id="${sessionId}" data-participant-id="${participantId}"></script>
+      <script src="/sdk/uxlab-runtime-sdk.js" data-mode="${mode}" data-test-id="${testId}" data-tracking-id="${trackingId}" data-session-id="${sessionId}" data-participant-id="${participantId}"></script>
     `;
 
-    if (html.includes('<head>')) {
-      html = html.replace('<head>', `<head>${headInjection}`);
+    if (/<head[^>]*>/i.test(html)) {
+      html = html.replace(/<head[^>]*>/i, (m) => `${m}${headInjection}`);
     } else if (html.includes('<html')) {
       html = html.replace(/<html[^>]*>/, `$&<head>${headInjection}</head>`);
     } else {
       html = `<head>${headInjection}</head>${html}`;
     }
 
+    res.setHeader('Set-Cookie', `uxlab_proto=${encodeURIComponent(targetOrigin)}; Path=/; SameSite=Lax`);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    res.setHeader('Cache-Control', 'no-store');
     return res.send(html);
   } catch (err: any) {
     return res.status(502).json({
       error: 'PROTOTYPE_CONNECTION_FAILED',
       message: err.message,
       url: rawUrl,
-      diagnostic: `Falha crítica ao conectar ao protótipo real [${rawUrl}]. O sistema recusa interfaces fictícias.`
+      diagnostic: `Falha ao conectar ao protótipo real [${rawUrl}].`
     });
   }
 });

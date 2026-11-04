@@ -114,6 +114,17 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
     loadData();
   }, [testId]);
 
+  // Nome legível do cenário (mapeado no protótipo) a partir do screenId
+  const screenLabel = (screenId: string) => {
+    const mapped = test?.screenMap?.find((sc) => sc.screenId === screenId);
+    if (mapped) return mapped.screenName;
+    for (const t of test?.tasks || []) {
+      const d = t.expectedPathDetails?.find((x) => x.screenId === screenId);
+      if (d) return d.screenName;
+    }
+    return screenId;
+  };
+
   const handleRunAi = async () => {
     setAiRunning(true);
     const result = await runAiAnalysis(testId);
@@ -578,8 +589,8 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {task.expectedPath.map((step, idx) => (
                           <React.Fragment key={idx}>
-                            <span className="px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-xs">
-                              {step}
+                            <span className="px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-xs" title={step}>
+                              {screenLabel(step)}
                             </span>
                             {idx < task.expectedPath.length - 1 && (
                               <span className="text-slate-400 font-bold">→</span>
@@ -609,8 +620,9 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
                                   ? 'bg-amber-50 text-amber-800 border-amber-300 font-bold'
                                   : 'bg-white text-slate-700 border-slate-200'
                               }`}
+                              title={step}
                             >
-                              {step}
+                              {screenLabel(step)}
                             </span>
                             {idx < task.mostUsedPath.length - 1 && (
                               <span className="text-amber-500 font-bold">→</span>
@@ -628,7 +640,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
                     </span>
                     {task.pathFrequencies.map((pf, pIdx) => (
                       <div key={pIdx} className="flex items-center justify-between text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
-                        <span className="truncate pr-2 font-mono text-[11px]">{pf.path.join(' → ')}</span>
+                        <span className="truncate pr-2 text-[11px]" title={pf.path.join(' → ')}>{pf.path.map(screenLabel).join(' → ')}</span>
                         <span className="font-semibold text-slate-900 shrink-0 text-xs">{pf.count} usuários ({pf.percentage}%)</span>
                       </div>
                     ))}

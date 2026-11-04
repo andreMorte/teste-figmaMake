@@ -85,8 +85,33 @@ export interface TestTask {
   objective?: string;
   instruction: string;
   expectedPath: string[]; // Screen keys in sequence
+  expectedPathDetails?: ExpectedPathStep[]; // Detalhe de cada troca de cenário (mapeador)
   successCriteria: string;
   errorCriteria: string;
+}
+
+/**
+ * Cenário (tela lógica) detectado automaticamente pelo SDK em protótipos de página única
+ * (Figma Make troca componentes sem mudar a URL).
+ */
+export interface MappedScreen {
+  screenId: string; // chave estável derivada do título/etapa (usada no expectedPath)
+  screenName: string; // nome exibido (editável pelo pesquisador)
+  title: string; // maior texto/título visível
+  subtitle?: string; // segundo título da hierarquia
+  stepLabel?: string; // indicador de etapa (ex.: "1 de 3")
+  dialog?: boolean; // cenário é um modal/diálogo sobre a tela
+  url?: string;
+  actions: string[]; // botões/ações visíveis
+  inputs: string[]; // campos de formulário visíveis
+  thumbnail?: string; // miniatura JPEG (data URL)
+  firstSeenAt: string;
+}
+
+export interface ExpectedPathStep {
+  screenId: string;
+  screenName: string;
+  trigger?: string; // ação que levou a este cenário (ex.: clique em "Nova cotação")
 }
 
 export type CustomQuestionType = 'open_text' | 'likert_scale' | 'multiple_choice';
@@ -132,6 +157,7 @@ export interface UsabilityTest {
   prototypeUrl: string;
   trackingId: string;
   tasks: TestTask[];
+  screenMap?: MappedScreen[]; // catálogo de cenários mapeados do protótipo
   customQuestions?: CustomQuestion[];
   metricConfig: MetricConfig;
   verifiedAt?: string;

@@ -10,6 +10,8 @@ import {
   createTest
 } from '../../services/dataService';
 import { isFigmaUrl, toFigmaEmbedUrl, getShareableTestUrl } from '../../utils/figmaUtils';
+import { ScreenMapper, getTaskSteps, withTaskSteps } from './ScreenMapper';
+import { MappedScreen } from '../../types';
 import {
   Check,
   ChevronRight,
@@ -36,7 +38,9 @@ import {
   MousePointer,
   Hash,
   Activity,
-  Code
+  Code,
+  ScanSearch,
+  MousePointerClick
 } from 'lucide-react';
 
 interface CreateTestWizardProps {
@@ -127,6 +131,9 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
 
   // STEP 4 STATE: Prototype & Publication
   const [prototypeUrl, setPrototypeUrl] = useState('https://evil-chess-37482794.figma.site');
+  // Mapeamento de cenários (Etapa 2)
+  const [screenMap, setScreenMap] = useState<MappedScreen[]>([]);
+  const [isMapperOpen, setIsMapperOpen] = useState(false);
   const [testId, setTestId] = useState(() => 'TEST-' + Math.random().toString(36).substring(2, 7).toUpperCase());
   const [trackingId, setTrackingId] = useState('UX-QK8UY');
   const [copiedSnippet, setCopiedSnippet] = useState(false);
@@ -302,32 +309,38 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
     setActiveTaskIndex(Math.max(0, index - 1));
   };
 
-  // Expected Path manipulation
+  // Expected Path manipulation (mantém expectedPath[] e os detalhes de cada cenário sincronizados)
+  const setTaskSteps = (taskIdx: number, steps: ReturnType<typeof getTaskSteps>) => {
+    setTasks((prev) => prev.map((t, i) => (i === taskIdx ? withTaskSteps(t, steps) : t)));
+  };
+
   const addPathStep = (taskIdx: number) => {
     if (!newStepName.trim()) return;
-    const cleanKey = newStepName.trim().toLowerCase().replace(/\s+/g, '-');
-    const updated = [...tasks];
-    updated[taskIdx].expectedPath.push(cleanKey);
-    setTasks(updated);
+    const label = newStepName.trim();
+    const cleanKey = label
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const mapped = screenMap.find((sc) => sc.screenId === cleanKey);
+    setTaskSteps(taskIdx, [
+      ...getTaskSteps(tasks[taskIdx], screenMap),
+      { screenId: cleanKey, screenName: mapped?.screenName || label }
+    ]);
     setNewStepName('');
   };
 
   const removePathStep = (taskIdx: number, stepIdx: number) => {
-    const updated = [...tasks];
-    updated[taskIdx].expectedPath = updated[taskIdx].expectedPath.filter((_, i) => i !== stepIdx);
-    setTasks(updated);
+    setTaskSteps(taskIdx, getTaskSteps(tasks[taskIdx], screenMap).filter((_, i) => i !== stepIdx));
   };
 
   const movePathStep = (taskIdx: number, stepIdx: number, direction: 'up' | 'down') => {
-    const updated = [...tasks];
-    const path = [...updated[taskIdx].expectedPath];
+    const steps = getTaskSteps(tasks[taskIdx], screenMap);
     const targetIdx = direction === 'up' ? stepIdx - 1 : stepIdx + 1;
-    if (targetIdx < 0 || targetIdx >= path.length) return;
-    const temp = path[stepIdx];
-    path[stepIdx] = path[targetIdx];
-    path[targetIdx] = temp;
-    updated[taskIdx].expectedPath = path;
-    setTasks(updated);
+    if (targetIdx < 0 || targetIdx >= steps.length) return;
+    [steps[stepIdx], steps[targetIdx]] = [steps[targetIdx], steps[stepIdx]];
+    setTaskSteps(taskIdx, steps);
   };
 
   // Custom Question manipulation
@@ -403,6 +416,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       prototypeUrl: prototypeUrl.trim(),
       trackingId: trackingId.trim(),
       tasks,
+      screenMap,
       customQuestions,
       metricConfig: metrics
     });
@@ -433,6 +447,21 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300">
+      {isMapperOpen && (
+        <ScreenMapper
+          prototypeUrl={prototypeUrl}
+          onPrototypeUrlChange={setPrototypeUrl}
+          testId={testId}
+          trackingId={trackingId}
+          tasks={tasks}
+          activeTaskIndex={activeTaskIndex}
+          onActiveTaskIndexChange={setActiveTaskIndex}
+          onTasksChange={setTasks}
+          screens={screenMap}
+          onScreensChange={setScreenMap}
+          onClose={() => setIsMapperOpen(false)}
+        />
+      )}
       {/* Step Progress Header */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center justify-between">
@@ -761,17 +790,32 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 />
               </div>
 
-              {/* Expected Path Visual Builder */}
+              {/* Expected Path Visual Builder + Mapeador de cenários */}
               <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 flex items-center gap-2 text-xs">
-                    <Layers className="w-4 h-4 text-blue-600" />
-                    Caminho Esperado (expectedPath[])
-                  </span>
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    {tasks[activeTaskIndex].expectedPath.length} etapas definidas
-                  </span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="font-bold text-slate-800 flex items-center gap-2 text-xs">
+                      <Layers className="w-4 h-4 text-blue-600" />
+                      Caminho Esperado (expectedPath[])
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {tasks[activeTaskIndex].expectedPath.length} cenário(s) • {screenMap.length} cenário(s) mapeado(s) no protótipo
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsMapperOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs self-start sm:self-auto"
+                  >
+                    <ScanSearch className="w-4 h-4" />
+                    <span>{screenMap.length ? 'Abrir mapeador de cenários' : 'Mapear cenários do protótipo'}</span>
+                  </button>
                 </div>
+
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  O Figma Make funciona em uma única página e troca componentes na tela. O mapeador abre o protótipo, detecta cada troca de
+                  cenário (título, subtítulo, etapa “1 de 3”, modais) e grava o caminho da tarefa com a ação que levou a cada cenário.
+                </p>
 
                 {/* Visual Flow Representation */}
                 <div className="flex items-center gap-2 overflow-x-auto py-2">
@@ -780,11 +824,11 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   </span>
                   <span className="text-blue-500 font-bold">→</span>
 
-                  {tasks[activeTaskIndex].expectedPath.map((step, sIdx) => (
-                    <React.Fragment key={sIdx}>
+                  {getTaskSteps(tasks[activeTaskIndex], screenMap).map((step, sIdx, all) => (
+                    <React.Fragment key={`${step.screenId}-${sIdx}`}>
                       <div className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 flex items-center gap-2 shrink-0 shadow-xs group">
-                        <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-semibold text-[11px]">
-                          {step}
+                        <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-semibold text-[11px] max-w-[220px] truncate" title={step.screenId}>
+                          {step.screenName}
                         </span>
 
                         <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
@@ -798,7 +842,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                               <MoveUp className="w-3 h-3 rotate-270" />
                             </button>
                           )}
-                          {sIdx < tasks[activeTaskIndex].expectedPath.length - 1 && (
+                          {sIdx < all.length - 1 && (
                             <button
                               type="button"
                               onClick={() => movePathStep(activeTaskIndex, sIdx, 'down')}
@@ -827,16 +871,57 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   </span>
                 </div>
 
+                {/* Passo a passo detalhado */}
+                {getTaskSteps(tasks[activeTaskIndex], screenMap).some((st) => st.trigger || screenMap.some((m) => m.screenId === st.screenId)) && (
+                  <div className="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100">
+                    {getTaskSteps(tasks[activeTaskIndex], screenMap).map((st, idx) => {
+                      const mapped = screenMap.find((m) => m.screenId === st.screenId);
+                      return (
+                        <div key={`${st.screenId}-detail-${idx}`} className="flex gap-3 p-2.5">
+                          <span className="w-5 h-5 shrink-0 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center mt-0.5">
+                            {idx + 1}
+                          </span>
+                          {mapped?.thumbnail && (
+                            <img src={mapped.thumbnail} alt="" className="w-20 h-12 rounded-md border border-slate-200 object-cover object-top shrink-0" />
+                          )}
+                          <div className="min-w-0 space-y-0.5">
+                            {st.trigger && idx > 0 && (
+                              <div className="text-[11px] text-violet-700 flex items-center gap-1">
+                                <MousePointerClick className="w-3 h-3" /> ao clicar em “{st.trigger}”
+                              </div>
+                            )}
+                            <div className="font-semibold text-slate-900">{st.screenName}</div>
+                            {mapped && (mapped.stepLabel || mapped.actions.length > 0) && (
+                              <div className="text-[11px] text-slate-500 truncate">
+                                {mapped.stepLabel ? `Etapa ${mapped.stepLabel} • ` : ''}
+                                {mapped.actions.slice(0, 5).join(' · ')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Add Step input */}
                 <div className="flex items-center gap-2 pt-2 border-t border-slate-200/80">
                   <input
                     type="text"
                     value={newStepName}
                     onChange={(e) => setNewStepName(e.target.value)}
-                    placeholder="Nome da tela / etapa (ex: coberturas, resumo)..."
+                    list="mapped-screens-list"
+                    placeholder="Adicionar cenário manualmente (ex: resumo da proposta)..."
                     className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 outline-none text-xs focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
                     onKeyDown={(e) => e.key === 'Enter' && addPathStep(activeTaskIndex)}
                   />
+                  <datalist id="mapped-screens-list">
+                    {screenMap.map((sc) => (
+                      <option key={sc.screenId} value={sc.screenId}>
+                        {sc.screenName}
+                      </option>
+                    ))}
+                  </datalist>
                   <button
                     type="button"
                     onClick={() => addPathStep(activeTaskIndex)}

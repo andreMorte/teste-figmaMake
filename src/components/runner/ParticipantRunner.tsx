@@ -17,6 +17,8 @@ import { saveScreenSnapshot } from '../../services/snapshotService';
 import { OFFICIAL_SUS_QUESTIONS } from '../../data/mockData';
 import {
   toFigmaEmbedUrl,
+  canInstrumentPrototype,
+  getInstrumentedPrototypeUrl,
   isFigmaUrl,
   isValidRealFigmaUrl,
   getShareableTestUrl
@@ -211,7 +213,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                 taskId: firstTask.id,
                 screen: 'start',
                 eventType: 'TASK_START',
-                currentScreen: firstTask.expectedPath[0] || 'tela-inicial'
+                currentScreen: sdkConnected && detectedScreenId !== 'SCREEN-001' ? detectedScreenId : firstTask.expectedPath[0] || 'tela-inicial'
               }).catch(() => {});
             }
           }
@@ -240,10 +242,28 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   }, [testId, overridePrototypeUrl]);
 
   // Real Prototype Embed URL (Preserves direct native JavaScript & embeds Figma cleanly)
+  // Protótipos web/Figma Make são carregados pelo proxy da mesma origem para injetar o SDK
+  // (detecção de cenários em página única). Se o SDK não conectar, cai para a URL direta.
+  const [useInstrumentedProxy, setUseInstrumentedProxy] = useState(true);
   const realEmbedUrl = useMemo(() => {
     if (!test?.prototypeUrl) return '';
+    if (useInstrumentedProxy && canInstrumentPrototype(test.prototypeUrl)) {
+      return getInstrumentedPrototypeUrl(test.prototypeUrl, { testId: test.id, trackingId: test.trackingId });
+    }
     return toFigmaEmbedUrl(test.prototypeUrl);
-  }, [test?.prototypeUrl]);
+  }, [test?.prototypeUrl, test?.id, test?.trackingId, useInstrumentedProxy]);
+
+  // Fallback: sem handshake do SDK em 12s após carregar o iframe, usa a URL original
+  useEffect(() => {
+    if (!iframeLoaded || sdkConnected || !useInstrumentedProxy || !test?.prototypeUrl) return;
+    if (!canInstrumentPrototype(test.prototypeUrl)) return;
+    const t = setTimeout(() => {
+      console.warn('[Runner] SDK não conectou via proxy; carregando protótipo direto (telemetria limitada).');
+      setUseInstrumentedProxy(false);
+      setIframeLoaded(false);
+    }, 12000);
+    return () => clearTimeout(t);
+  }, [iframeLoaded, sdkConnected, useInstrumentedProxy, test?.prototypeUrl]);
 
   // PostMessage listener from the real proxied runtime
   useEffect(() => {
@@ -292,7 +312,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
             screen: screenId,
             eventType: 'SCREEN_VIEW',
             currentScreen: screenId,
-            metadata: { screenName, url: data.url }
+            metadata: { screenName, url: data.url, trigger: data.trigger, previousScreenId: data.previousScreenId }
           });
         }
       }
@@ -403,6 +423,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   // Window blur listener to detect clicks inside the Figma iframe
   useEffect(() => {
     const handleWindowBlur = () => {
+      // Com o SDK conectado os cliques chegam com coordenadas reais via postMessage
+      if (sdkConnected) return;
       if (step === 'task_running' && session && test) {
         setClickCounter((c) => c + 1);
         const currentTask = test.tasks[currentTaskIndex];
@@ -422,7 +444,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     return () => {
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [step, session, test, currentTaskIndex]);
+  }, [step, session, test, currentTaskIndex, sdkConnected]);
 
   // Start Session Handler
   const handleStartTest = async () => {
@@ -446,7 +468,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         taskId: firstTask.id,
         screen: 'start',
         eventType: 'TASK_START',
-        currentScreen: firstTask.expectedPath[0] || 'tela-inicial'
+        currentScreen: sdkConnected && detectedScreenId !== 'SCREEN-001' ? detectedScreenId : firstTask.expectedPath[0] || 'tela-inicial'
       });
     }
   };
@@ -525,7 +547,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         taskId: nextTask.id,
         screen: `task-${nextIdx + 1}-start`,
         eventType: 'TASK_START',
-        currentScreen: nextTask.expectedPath[0] || `etapa-${nextIdx + 1}`
+        currentScreen: sdkConnected && detectedScreenId !== 'SCREEN-001' ? detectedScreenId : nextTask.expectedPath[0] || `etapa-${nextIdx + 1}`
       });
     } else {
       // Finished all tasks -> Check if there are researcher custom questions

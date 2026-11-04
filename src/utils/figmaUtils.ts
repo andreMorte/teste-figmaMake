@@ -88,3 +88,27 @@ export function getShareableTestUrl(testId: string, prototypeUrl?: string): stri
   }
   return base;
 }
+
+/**
+ * Protótipos publicados na web (Figma Make *.figma.site, Vercel, Netlify...) podem ser
+ * carregados pelo proxy da mesma origem, que injeta o SDK UXLab. Links figma.com usam o embed oficial.
+ */
+export function canInstrumentPrototype(url?: string): boolean {
+  if (!url) return false;
+  const t = url.trim();
+  if (t.startsWith('/')) return false;
+  return !isFigmaProtoOrFileUrl(t);
+}
+
+export function getInstrumentedPrototypeUrl(
+  url: string,
+  opts: { testId?: string; trackingId?: string; sessionId?: string; participantId?: string; mode?: 'run' | 'map' } = {}
+): string {
+  const params = new URLSearchParams({ url: url.trim() });
+  if (opts.testId) params.set('testId', opts.testId);
+  if (opts.trackingId) params.set('trackingId', opts.trackingId);
+  if (opts.sessionId) params.set('sessionId', opts.sessionId);
+  if (opts.participantId) params.set('participantId', opts.participantId);
+  if (opts.mode) params.set('mode', opts.mode);
+  return `/api/prototype-runtime?${params.toString()}`;
+}

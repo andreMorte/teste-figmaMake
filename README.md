@@ -54,6 +54,17 @@ docker build -t ux-test-lab .
 docker run -p 3000:3000 -v $(pwd)/data:/var/data ux-test-lab
 ```
 
+## Mapeamento de cenários (Etapa 2 do "Criar Teste")
+
+Protótipos Figma Make são uma página só: a URL não muda, os componentes trocam. Na Etapa 2, **Mapear cenários do protótipo** abre o protótipo (pelo proxy `/api/prototype-runtime`, que injeta o SDK) e:
+
+- detecta cada troca de cenário pela hierarquia visual: maior título + subtítulo + indicador de etapa (“1 de 3”) + modais abertos;
+- guarda os parâmetros de cada cenário: título, subtítulo, etapa, ações (botões), campos e uma miniatura;
+- **Gravar caminho desta tarefa**: você executa a tarefa no protótipo e cada cenário vira um passo do `expectedPath`, com a ação que levou até ele (ex.: ao clicar em “Próximo”);
+- nomes dos cenários são editáveis; os IDs (ex.: `emprestimo-com-garantia-de-imovel-2-de-3-dados-complementares`) são os mesmos que o runner registra para os participantes, então o caminho real é comparado com o esperado.
+
+Para controle total, peça ao Figma Make: *“adicione `data-uxlab-screen="nome-da-tela"` no container de cada tela”* — essa marcação tem prioridade sobre a detecção automática.
+
 ## Rotina para cada novo teste
 
 1. **Criar Teste** no painel (nome, tarefas, URL do protótipo `*.figma.site`).
