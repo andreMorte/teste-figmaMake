@@ -62,6 +62,7 @@ interface TestDetailLayoutProps {
   onOpenRunner: (testId: string, customPrototypeUrl?: string) => void;
   onOpenValidationEngine: (prototypeUrl: string, testId: string, trackingId: string) => void;
   onOpenParticipant?: (participantKey: string) => void;
+  onOpenQualitative?: () => void;
 }
 
 export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
@@ -69,7 +70,8 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
   onNavigate,
   onOpenRunner,
   onOpenValidationEngine,
-  onOpenParticipant
+  onOpenParticipant,
+  onOpenQualitative
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'journey' | 'heatmaps' | 'sus' | 'participants' | 'insights'>('overview');
   const [loading, setLoading] = useState(true);
@@ -269,7 +271,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
       {/* TAB 1: VISÃO GERAL & KPIS */}
       {/* ========================================================================= */}
       {activeTab === 'overview' && test && (
-        <OverviewPanel test={test} sessions={sessions} isDemo={isDemo} onOpenTab={(tab) => setActiveTab(tab)} onOpenParticipant={onOpenParticipant} />
+        <OverviewPanel test={test} sessions={sessions} isDemo={isDemo} onOpenTab={(tab) => setActiveTab(tab)} onOpenParticipant={onOpenParticipant} onOpenQualitative={onOpenQualitative} />
       )}
 
       {/* ========================================================================= */}

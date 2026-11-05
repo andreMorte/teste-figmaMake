@@ -4,6 +4,7 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { Pool } from 'pg';
+import { collectQualitative, hashInput, analyzeQualitative, aiEngine, QualResult } from './qualitative';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -49,7 +50,8 @@ function buildDbPayload() {
     sessions: serverSessionsStore,
     events: serverEventsStore,
     susResponses: serverSusResponsesStore,
-    verifications: recentVerifications
+    verifications: recentVerifications,
+    aiAnalyses: serverAiAnalysesStore
   };
 }
 
@@ -114,6 +116,7 @@ function applyDb(db: any) {
   replaceArray(serverEventsStore, db.events);
   replaceArray(serverSusResponsesStore, db.susResponses);
   replaceArray(recentVerifications, db.verifications);
+  replaceArray(serverAiAnalysesStore, db.aiAnalyses);
 }
 
 async function loadData() {
@@ -378,6 +381,7 @@ const serverParticipantsStore: any[] = [];
 const serverSessionsStore: any[] = [];
 const serverEventsStore: any[] = [];
 const serverSusResponsesStore: any[] = [];
+const serverAiAnalysesStore: QualResult[] = [];
 
 // Uma "visita" que só abriu o link (apenas SESSION_START) não conta como execução no painel
 function isRealSession(s: any) {
@@ -693,6 +697,7 @@ app.post('/api/events', (req, res) => {
     }
   }
 
+  if (['CUSTOM_SURVEY_END', 'SUS_COMPLETE', 'TASK_ERROR', 'TASK_ABANDON'].includes(event.eventType)) scheduleQualitative(event.testId);
   return res.json({ success: true, eventId: fullEvent.eventId });
 });
 
@@ -1089,6 +1094,7 @@ app.delete('/api/tests/:id', (req, res) => {
   purge(serverSessionsStore, (s) => s.testId === id);
   purge(serverEventsStore, (e) => e.testId === id);
   purge(serverSusResponsesStore, (s) => s.testId === id);
+  purge(serverAiAnalysesStore, (s: any) => s.testId === id);
   purge(serverSnapshotsStore, (s) => s.testId === id);
   return res.json({ success: true });
 });
@@ -1108,6 +1114,9 @@ app.post('/api/tests/:id/reset', (req, res) => {
   for (let i = serverSusResponsesStore.length - 1; i >= 0; i--) {
     if (serverSusResponsesStore[i].testId === id) serverSusResponsesStore.splice(i, 1);
   }
+  for (let i = serverAiAnalysesStore.length - 1; i >= 0; i--) {
+    if (serverAiAnalysesStore[i].testId === id) serverAiAnalysesStore.splice(i, 1);
+  }
   // mantém as capturas do mapeamento (imagem-base do heatmap); apaga só as de participantes
   for (let i = serverSnapshotsStore.length - 1; i >= 0; i--) {
     if (serverSnapshotsStore[i].testId === id && serverSnapshotsStore[i].sessionId !== 'MAPEAMENTO') serverSnapshotsStore.splice(i, 1);
@@ -1123,6 +1132,75 @@ app.post('/api/tests/:id/reset', (req, res) => {
   }
 
   return res.json({ success: true, message: `Dados do teste ${id} redefinidos com sucesso.` });
+});
+
+// ---------------------------------------------------------------------------
+// Análise qualitativa por IA (respostas abertas, perguntas configuradas, dificuldades)
+// Roda sozinha alguns segundos depois de chegar resposta nova e fica em cache.
+// ---------------------------------------------------------------------------
+const qualInFlight = new Map<string, Promise<QualResult | null>>();
+const qualTimers = new Map<string, NodeJS.Timeout>();
+
+function qualInputFor(testId: string) {
+  const test = serverTestsStore.find((t) => t.id === testId);
+  if (!test) return null;
+  const sessions = serverSessionsStore.filter((s) => s.testId === testId && isRealSession(s));
+  const sessionIds = new Set(sessions.map((s) => s.sessionId));
+  const events = serverEventsStore.filter((e) => e.testId === testId && sessionIds.has(e.sessionId));
+  const sus = serverSusResponsesStore.filter((r) => r.testId === testId);
+  const { items, participants } = collectQualitative(test, sessions, events, sus);
+  return { test, items, participants, hash: hashInput(test, items) };
+}
+
+function runQualitative(testId: string, force = false): Promise<QualResult | null> {
+  if (qualInFlight.has(testId)) return qualInFlight.get(testId)!;
+  const job = (async () => {
+    const input = qualInputFor(testId);
+    if (!input) return null;
+    const cached = serverAiAnalysesStore.find((a) => a.testId === testId);
+    const engine = aiEngine() || 'local';
+    if (!force && cached && cached.hash === input.hash && (cached.engine === engine || engine === 'local') && !cached.aiError) return cached;
+    const out = await analyzeQualitative(input.test, input.items, input.participants);
+    const result: QualResult = {
+      testId,
+      hash: input.hash,
+      createdAt: new Date().toISOString(),
+      itemsInput: input.items,
+      participants: input.participants,
+      ...out
+    };
+    const idx = serverAiAnalysesStore.findIndex((a) => a.testId === testId);
+    if (idx >= 0) serverAiAnalysesStore[idx] = result;
+    else serverAiAnalysesStore.push(result);
+    scheduleSave();
+    return result;
+  })().finally(() => qualInFlight.delete(testId));
+  qualInFlight.set(testId, job);
+  return job;
+}
+
+function scheduleQualitative(testId: string) {
+  if (!aiEngine()) return;
+  clearTimeout(qualTimers.get(testId));
+  qualTimers.set(
+    testId,
+    setTimeout(() => {
+      qualTimers.delete(testId);
+      runQualitative(testId).catch((err) => console.error('[IA] análise em segundo plano falhou', err));
+    }, 15000)
+  );
+}
+
+app.get('/api/tests/:id/qualitative', async (req, res) => {
+  const { id } = req.params;
+  if (!serverTestsStore.find((t) => t.id === id)) return res.status(404).json({ error: 'Test not found' });
+  try {
+    const result = await runQualitative(id, req.query.refresh === '1');
+    if (!result) return res.status(404).json({ error: 'Test not found' });
+    return res.json({ ...result, aiConfigured: !!aiEngine() });
+  } catch (err: any) {
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
 });
 
 // 9. EXPORT FIGMA MAKE PROJECT AS ZIP (.zip)

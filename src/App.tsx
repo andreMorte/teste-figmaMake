@@ -4,11 +4,12 @@ import { TestDetailLayout } from './components/tests/TestDetailLayout';
 import { ParticipantRunner } from './components/runner/ParticipantRunner';
 import { HomeView } from './components/home/HomeView';
 import { ParticipantDetail } from './components/participants/ParticipantDetail';
+import { QualitativeAnalysis } from './components/analytics/QualitativeAnalysis';
 import { UsabilityTest } from './types';
 import { getTests, deleteTest } from './services/dataService';
 import { FlaskConical, Plus, ChevronRight } from 'lucide-react';
 
-type View = 'home' | 'create-test' | 'test-detail' | 'participant' | 'runner';
+type View = 'home' | 'create-test' | 'test-detail' | 'participant' | 'qualitative' | 'runner';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
@@ -65,7 +66,9 @@ export default function App() {
     setCurrentView('test-detail');
   };
 
+  const [participantReturn, setParticipantReturn] = useState<View>('test-detail');
   const openParticipant = (key: string) => {
+    if (currentView !== 'participant') setParticipantReturn(currentView === 'qualitative' ? 'qualitative' : 'test-detail');
     setParticipantKey(key);
     setCurrentView('participant');
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
@@ -111,16 +114,22 @@ export default function App() {
                 <span className="text-slate-900 font-medium">Novo teste</span>
               </>
             )}
-            {(currentView === 'test-detail' || currentView === 'participant') && (
+            {(currentView === 'test-detail' || currentView === 'participant' || currentView === 'qualitative') && (
               <>
                 <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
-                {currentView === 'participant' ? (
+                {currentView !== 'test-detail' ? (
                   <button type="button" onClick={() => setCurrentView('test-detail')} className="hover:text-slate-900 truncate">
                     {selectedTest?.name || selectedTestId}
                   </button>
                 ) : (
                   <span className="text-slate-900 font-medium truncate">{selectedTest?.name || selectedTestId}</span>
                 )}
+              </>
+            )}
+            {currentView === 'qualitative' && (
+              <>
+                <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                <span className="text-slate-900 font-medium truncate">Análise qualitativa</span>
               </>
             )}
             {currentView === 'participant' && (
@@ -193,6 +202,19 @@ export default function App() {
             }}
             onOpenValidationEngine={() => {}}
             onOpenParticipant={openParticipant}
+            onOpenQualitative={() => {
+              setCurrentView('qualitative');
+              window.scrollTo({ top: 0 });
+            }}
+          />
+        )}
+
+        {currentView === 'qualitative' && selectedTestId && (
+          <QualitativeAnalysis
+            testId={selectedTestId}
+            testName={selectedTest?.name}
+            onBack={() => setCurrentView('test-detail')}
+            onOpenParticipant={openParticipant}
           />
         )}
 
@@ -200,7 +222,7 @@ export default function App() {
           <ParticipantDetail
             testId={selectedTestId}
             participantKey={participantKey}
-            onBack={() => setCurrentView('test-detail')}
+            onBack={() => setCurrentView(participantReturn)}
             onOpenParticipant={openParticipant}
             onName={setParticipantName}
           />

@@ -17,3 +17,6 @@ services:
       # URL pública do serviço (ex.: https://ux-test-lab.onrender.com)
       - key: APP_URL
         sync: false
+      # IA da análise qualitativa (opcional). Chave grátis em https://aistudio.google.com/apikey
+      - key: GEMINI_API_KEY
+        sync: false

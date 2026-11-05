@@ -23,6 +23,7 @@ interface OverviewPanelProps {
   isDemo?: boolean;
   onOpenTab: (tab: 'tasks' | 'journey' | 'sus' | 'participants') => void;
   onOpenParticipant?: (key: string) => void;
+  onOpenQualitative?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +235,7 @@ const OutcomeBadge: React.FC<{ outcome: TaskOutcome }> = ({ outcome }) => {
   return <span className="text-slate-400">Não iniciou</span>;
 };
 
-export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, isDemo, onOpenTab, onOpenParticipant }) => {
+export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, isDemo, onOpenTab, onOpenParticipant, onOpenQualitative }) => {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const selectParticipant = (key: string | null) => {
@@ -461,13 +462,23 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, is
 
           {/* Participantes */}
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
                   <Users className="w-4 h-4 text-blue-600" /> Participantes ({rows.length}{limit ? ` de ${limit}` : ''})
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Clique em uma pessoa para ver as métricas dela.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Clique em uma pessoa para ver a página dela.</p>
               </div>
+              {onOpenQualitative && rows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onOpenQualitative}
+                  className="ml-auto inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white text-xs font-semibold shadow-sm shadow-violet-200 hover:brightness-110"
+                  title="Dores, pontos positivos e leitura comportamental das respostas escritas"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Análise qualitativa (IA)
+                </button>
+              )}
               {limit > 0 && (
                 <div className="w-40">
                   <div className="text-[11px] text-slate-500 text-right">{Math.round((rows.length / limit) * 100)}% das vagas</div>
