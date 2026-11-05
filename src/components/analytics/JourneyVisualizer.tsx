@@ -94,7 +94,8 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
   const data = useMemo(() => {
     if (!task) return null;
     const details: ExpectedPathStep[] = task.expectedPathDetails || [];
-    const expected = task.expectedPath || [];
+    let expected = task.expectedPath || [];
+    const mappedIds = new Set((test.screenMap || []).map((m) => m.screenId));
 
     // nomes: mapeamento > detalhes do caminho > nome capturado nos eventos dos participantes
     const eventNames: Record<string, string> = {};
@@ -108,6 +109,7 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
       test.screenMap?.find((m) => m.screenId === id)?.screenName ||
       details.find((d) => d.screenId === id)?.screenName ||
       eventNames[id] ||
+      heatmapList.find((h) => h.screenId === id)?.screenName ||
       id;
 
     const imageOf = (id: string) => {
@@ -128,6 +130,19 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
       .map((s) => ({ session: s, path: (s.actualPaths || {})[task.id] || [] }))
       .filter((a) => a.path.length > 0 || (a.session.events || []).some((e) => e.taskId === task.id));
     const N = attempts.length;
+
+    // Teste sem caminho mapeado (ex.: "home", "detalhes"): mostra o caminho mais percorrido de verdade
+    const observed = !expected.some((id) => mappedIds.has(id)) && N > 0;
+    if (observed) {
+      const freq = new Map<string, { path: string[]; n: number }>();
+      attempts.forEach(({ path }) => {
+        if (!path.length) return;
+        const k = path.join('>');
+        freq.set(k, { path, n: (freq.get(k)?.n || 0) + 1 });
+      });
+      const top = [...freq.values()].sort((a, b) => b.n - a.n || b.path.length - a.path.length)[0];
+      expected = top ? top.path.filter((id, i, arr) => arr.indexOf(id) === i) : [];
+    }
 
     const taskEvents = (s: ParticipantSession) =>
       (s.events || [])
@@ -262,14 +277,14 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
 
     const worst = [...nodes].filter((n) => n.friction.length).sort((a, b) => b.friction.length - a.friction.length || b.returnPct - a.returnPct)[0];
 
-    return { N, nodes, completed, exactIdeal, offPath, topLoop, worst, nameOf };
+    return { N, nodes, completed, exactIdeal, offPath, topLoop, worst, nameOf, observed };
   }, [task, realSessions, heatmapList, test.screenMap]);
 
   if (!task || !data) {
     return null;
   }
 
-  const { N, nodes, completed, exactIdeal, offPath, topLoop, worst, nameOf } = data;
+  const { N, nodes, completed, exactIdeal, offPath, topLoop, worst, nameOf, observed } = data;
   const hasMapping = (task.expectedPathDetails && task.expectedPathDetails.length > 0) || (test.screenMap && test.screenMap.length > 0);
 
   return (
@@ -309,7 +324,7 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
           <div className="text-xl font-bold text-slate-900 mt-1">{N}</div>
         </div>
         <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="flex items-center gap-1.5 text-slate-500 font-semibold"><Route className="w-3.5 h-3.5" /> Caminho ideal exato</div>
+          <div className="flex items-center gap-1.5 text-slate-500 font-semibold"><Route className="w-3.5 h-3.5" /> {observed ? 'Seguiram o caminho mais comum' : 'Caminho ideal exato'}</div>
           <div className="text-xl font-bold text-blue-700 mt-1">{pct(exactIdeal, N)}% <span className="text-xs text-slate-500 font-medium">({exactIdeal})</span></div>
         </div>
         <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
@@ -332,7 +347,14 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
         </div>
       ) : null}
 
-      {!hasMapping && (
+      {observed && (
+        <div className="p-3 rounded-xl bg-violet-50 border border-violet-200 text-xs text-violet-900">
+          Esta tarefa não tem caminho mapeado no protótipo. Abaixo está o <strong>caminho mais percorrido pelos participantes</strong>, na ordem em que
+          navegaram. Para comparar com um caminho ideal, crie o teste usando “Mapear cenários do protótipo”.
+        </div>
+      )}
+
+      {!hasMapping && !observed && (
         <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
           Este teste foi criado sem o mapeador de cenários. Para ver as telas reais em cada nó, crie o teste usando
           <strong> Etapa 2 → Mapear cenários do protótipo</strong>.

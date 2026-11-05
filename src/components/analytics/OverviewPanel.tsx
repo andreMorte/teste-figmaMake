@@ -64,7 +64,7 @@ function hasLoop(path: string[]) {
   return false;
 }
 
-function analyzeTask(session: ParticipantSession, task: TestTask): TaskAttempt {
+function analyzeTask(session: ParticipantSession, task: TestTask, mappedIds: Set<string>): TaskAttempt {
   const evs = (session.events || []).filter((e) => e.taskId === task.id).sort((a, b) => ts(a) - ts(b));
   const start = evs.find((e) => e.eventType === 'TASK_START');
   const success = evs.find((e) => e.eventType === 'TASK_SUCCESS');
@@ -90,7 +90,8 @@ function analyzeTask(session: ParticipantSession, task: TestTask): TaskAttempt {
 
   const path = (session.actualPaths || {})[task.id] || [];
   const expected = task.expectedPath || [];
-  const hasExpected = expected.length > 0;
+  // caminho de exemplo (sem nenhum cenário mapeado) não conta como caminho esperado
+  const hasExpected = expected.length > 0 && expected.some((id) => mappedIds.has(id));
 
   return {
     task,
@@ -117,8 +118,9 @@ function buildParticipants(test: UsabilityTest, sessions: ParticipantSession[]):
       const sorted = list.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
       // por tarefa, vale a melhor tentativa (sucesso > abandono > em andamento)
       const rank: Record<TaskOutcome, number> = { success: 3, abandoned: 2, in_progress: 1, not_started: 0 };
+      const mappedIds = new Set((test.screenMap || []).map((m) => m.screenId));
       const attempts = test.tasks.map((task) =>
-        sorted.map((s) => analyzeTask(s, task)).sort((a, b) => rank[b.outcome] - rank[a.outcome])[0]
+        sorted.map((s) => analyzeTask(s, task, mappedIds)).sort((a, b) => rank[b.outcome] - rank[a.outcome])[0]
       );
       const anyCompleted = sorted.some((s) => s.status === 'Concluído') || (attempts.length > 0 && attempts.every((a) => a.outcome !== 'not_started' && a.outcome !== 'in_progress'));
       const anyAbandon = sorted.some((s) => s.status === 'Abandonado') || attempts.some((a) => a.outcome === 'abandoned');
@@ -593,7 +595,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, is
                         {selected ? (t.returns ? 'Sim' : 'Não') : t.tried ? `${t.returns} (${pct(t.returns, t.tried)}%)` : '—'}
                       </td>
                       <td className="py-3.5 text-blue-600 font-medium">
-                        {!t.task.expectedPath?.length ? (
+                        {!t.idealBase && !t.task.expectedPath?.some((id) => (test.screenMap || []).some((m) => m.screenId === id)) ? (
                           <span className="text-slate-300">sem mapa</span>
                         ) : selected ? (
                           t.idealBase ? (t.ideal ? 'Sim' : 'Não') : '—'

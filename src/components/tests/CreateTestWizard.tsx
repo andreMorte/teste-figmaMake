@@ -1363,6 +1363,32 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 </div>
               </div>
 
+              {/* Tarefas sem caminho mapeado: conclusão manual pelo participante */}
+              {(() => {
+                const unmapped = tasks
+                  .map((t, i) => ({ t, i }))
+                  .filter(({ t }) => {
+                    const last = t.expectedPath[t.expectedPath.length - 1];
+                    return !last || !screenMap.some((m) => m.screenId === last);
+                  });
+                if (!unmapped.length) return null;
+                return (
+                  <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2">
+                    <div className="font-bold">
+                      {unmapped.length === tasks.length ? 'Nenhuma tarefa tem caminho mapeado' : `${unmapped.length} tarefa(s) sem caminho mapeado`}
+                    </div>
+                    <p className="leading-relaxed">
+                      {unmapped.map(({ i }) => `Tarefa ${i + 1}`).join(', ')}: o sistema não sabe qual tela encerra a tarefa, então o participante verá o botão
+                      “Terminei a tarefa”. A navegação, os prints e o heatmap continuam sendo registrados normalmente. Para conclusão automática e caminho
+                      ideal, volte à Etapa 2 e use “Mapear cenários do protótipo”.
+                    </p>
+                    <button type="button" onClick={() => setCurrentStep(2)} className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold">
+                      Ir para o mapeamento
+                    </button>
+                  </div>
+                );
+              })()}
+
               {/* Prototype Configuration Section */}
               <div className="p-5 sm:p-6 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-4 text-xs">
                 <div className="flex items-center justify-between">

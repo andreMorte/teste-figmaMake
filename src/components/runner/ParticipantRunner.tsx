@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   UsabilityTest,
+  TestTask,
   ParticipantSession,
   ScreenSnapshot
 } from '../../types';
@@ -83,6 +84,18 @@ export interface PipelineStep {
   detail: string;
   status: 'pending' | 'running' | 'success' | 'failed';
   error?: string;
+}
+
+/**
+ * A tarefa só termina sozinha quando o último cenário do caminho esperado foi mapeado no
+ * protótipo (existe no screenMap, preenchido pelo mapeador). Caminhos de exemplo
+ * ("home", "detalhes"...) nunca aparecem no protótipo: nesses casos a conclusão é manual.
+ */
+function isAutoCompletable(test: UsabilityTest, task: TestTask): boolean {
+  const path = task.expectedPath || [];
+  const finalScreen = path[path.length - 1];
+  if (!finalScreen) return false;
+  return (test.screenMap || []).some((m) => m.screenId === finalScreen);
 }
 
 export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
@@ -295,7 +308,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
           // Chegou ao último cenário mapeado da tarefa -> conclui automaticamente
           const activeTask = test.tasks[currentTaskIndex];
-          const finalScreen = activeTask?.expectedPath?.[activeTask.expectedPath.length - 1];
+          const finalScreen = activeTask && isAutoCompletable(test, activeTask) ? activeTask.expectedPath[activeTask.expectedPath.length - 1] : undefined;
           if (journeyStarted && !taskDoneModal && finalScreen && screenId === finalScreen && !completingTaskRef.current) {
             setTimeout(() => handleCompleteCurrentTaskRef.current(), 900);
           }
@@ -988,13 +1001,13 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
               </button>
 
               {/* Conclusão manual só quando não há detecção automática (sem SDK ou tarefa sem caminho mapeado) */}
-              {journeyStarted && (!sdkConnected || !currentTask.expectedPath || currentTask.expectedPath.length === 0) && (
+              {journeyStarted && (!sdkConnected || !isAutoCompletable(test, currentTask)) && (
               <button
                 type="button"
                 onClick={handleCompleteCurrentTask}
                 className="px-4 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white font-bold uppercase tracking-wider text-xs flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(34,197,94,0.3)] hover:scale-[1.02]"
               >
-                <span>Concluir Tarefa</span>
+                <span>Terminei a tarefa</span>
                 <Check className="w-3.5 h-3.5" />
               </button>
               )}
@@ -1333,7 +1346,10 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                 <div className="px-6 pb-4 space-y-3">
                   <ol className="space-y-1.5 text-xs text-slate-600">
                     <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">1</span>A tarefa aparece na barra do topo da tela.</li>
-                    <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">2</span>Navegue no protótipo como faria normalmente. Quando chegar ao fim, o sistema avisa sozinho.</li>
+                    <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">2</span>Navegue no protótipo como faria normalmente.{' '}
+                      {test.tasks.every((t) => isAutoCompletable(test, t))
+                        ? 'Quando chegar ao fim, o sistema avisa sozinho.'
+                        : 'Ao terminar, clique em “Terminei a tarefa” no topo da tela.'}</li>
                     <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">3</span>No final, você responde algumas perguntas rápidas.</li>
                   </ol>
                   {slots && slots.limit > 0 && (

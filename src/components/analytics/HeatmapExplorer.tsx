@@ -184,17 +184,33 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
     return (id: string) => names[id] || id;
   }, [realSessions, test, hmMap]);
 
-  // Lista de cenários: caminho esperado primeiro, depois os demais com cliques ou captura
+  // Lista de cenários: tudo o que o participante realmente viu, na ordem em que navegou,
+  // mesmo que o teste não tenha sido mapeado. Caminhos de exemplo sem dados ficam de fora.
   const screens = useMemo(() => {
     const order: string[] = [];
     const add = (id?: string) => id && !order.includes(id) && order.push(id);
-    test.tasks.forEach((t) => (t.expectedPath || []).forEach(add));
+    const mappedIds = new Set((test.screenMap || []).map((m) => m.screenId));
+    // 1) caminho esperado (só cenários mapeados de verdade)
+    test.tasks.forEach((t) => (t.expectedPath || []).filter((id) => mappedIds.has(id)).forEach(add));
+    // 2) ordem real de navegação dos participantes
+    realSessions
+      .slice()
+      .sort((a, b) => a.startTime.localeCompare(b.startTime))
+      .forEach((s) =>
+        (s.events || [])
+          .slice()
+          .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+          .filter((e) => (e.eventType === 'SCREEN_VIEW' || e.eventType === 'TASK_START' || e.eventType === 'CLICK') && e.currentScreen)
+          .forEach((e) => add(e.currentScreen))
+      );
+    // 3) cenários mapeados não visitados, e qualquer tela com print ou clique
+    (test.screenMap || []).forEach((m) => add(m.screenId));
     const counts: Record<string, number> = {};
     allPoints.forEach((p) => (counts[p.screen] = (counts[p.screen] || 0) + 1));
-    Object.keys(counts).sort((a, b) => counts[b] - counts[a]).forEach(add);
+    Object.keys(counts).forEach(add);
     Object.keys(hmMap).forEach(add);
     return order
-      .filter((id) => !/^(figma-frame|task-|SCREEN-001)/.test(id))
+      .filter((id) => !/^(figma-frame|task-|SCREEN-001|inicio$|start$|survey$|sus$|end$|fim$)/.test(id))
       .map((id) => {
         const hm = hmMap[id];
         const snap: SnapshotMeta | undefined = hm?.snapshot;
@@ -208,10 +224,10 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
           lowRes: !snap && !!mapped?.thumbnail,
           thumbSrc: mapped?.thumbnail || (snap ? snap.image || snap.imageUrl : undefined),
           clicks: counts[id] || 0,
-          inExpected: test.tasks.some((t) => t.expectedPath?.includes(id))
+          inExpected: true
         };
       });
-  }, [test, allPoints, hmMap, nameOf]);
+  }, [test, allPoints, hmMap, nameOf, realSessions]);
 
   const [screenId, setScreenId] = useState<string>('');
   const [participant, setParticipant] = useState('all');
