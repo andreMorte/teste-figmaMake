@@ -330,7 +330,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           scrollX: data.scrollX || 0,
           scrollY: data.scrollY || 0,
           scrollPercentage: data.scrollPercentage || 0,
-          documentHeight: data.documentHeight || 900
+          documentHeight: data.documentHeight || 900,
+          ...({ documentWidth: data.documentWidth, capturedHeight: data.capturedHeight, fullPage: !!data.fullPage } as any)
         };
 
         saveScreenSnapshot(snap);
@@ -368,7 +369,14 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
               text: data.text,
               selector: data.selector,
               tagName: data.tagName,
-              interactive: data.interactive
+              interactive: data.interactive,
+              // coordenadas relativas à página inteira (batem com a captura de página inteira)
+              pageNX: data.pageNX,
+              pageNY: data.pageNY,
+              docWidth: data.docWidth,
+              docHeight: data.docHeight,
+              elementRect: data.elementRect,
+              screenName: data.screenName
             }
           });
         }

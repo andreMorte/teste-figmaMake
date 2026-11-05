@@ -1001,42 +1001,56 @@ app.get('/api/tests/:id/results', (req, res) => {
     };
   }
 
-  // Real Click Heatmap points (strictly from real events with coordinates)
+  // Pontos de clique reais. Preferência: coordenadas da página inteira (pageNX/pageNY),
+  // que casam com a captura de página inteira; senão, coordenadas da área visível.
   const clickEvents = events.filter((e) => e.eventType === 'CLICK' && (typeof e.normalizedX === 'number' || typeof e.x === 'number'));
-  const heatmap = clickEvents.map((evt, idx) => ({
-    id: `HP-${idx + 1}`,
-    screen: evt.screen || evt.currentScreen || 'dashboard',
-    element: evt.element || 'interactable',
-    xPercent: typeof evt.normalizedX === 'number' ? Math.round(evt.normalizedX * 100) : (evt.x || 50),
-    yPercent: typeof evt.normalizedY === 'number' ? Math.round(evt.normalizedY * 100) : (evt.y || 50),
-    normalizedX: evt.normalizedX ?? (evt.x ? evt.x / 1440 : 0.5),
-    normalizedY: evt.normalizedY ?? (evt.y ? evt.y / 900 : 0.5),
-    x: evt.x || Math.round((evt.normalizedX || 0.5) * 1440),
-    y: evt.y || Math.round((evt.normalizedY || 0.5) * 900),
-    screenshotId: evt.screenshotId,
-    intensity: 'alta',
-    clickCount: 1,
-    isError: false,
-    timestamp: evt.timestamp,
-    sessionId: evt.sessionId,
-    participantId: evt.participantId
-  }));
+  const heatmap = clickEvents.map((evt, idx) => {
+    const meta = evt.metadata || {};
+    const hasPage = typeof meta.pageNX === 'number' && typeof meta.pageNY === 'number';
+    return {
+      id: `HP-${idx + 1}`,
+      screen: evt.currentScreen || evt.screen || 'tela',
+      element: evt.element || 'elemento',
+      taskId: evt.taskId,
+      interactive: typeof meta.interactive === 'boolean' ? meta.interactive : undefined,
+      pageNX: hasPage ? meta.pageNX : undefined,
+      pageNY: hasPage ? meta.pageNY : undefined,
+      docWidth: meta.docWidth,
+      docHeight: meta.docHeight,
+      elementRect: meta.elementRect,
+      xPercent: Math.round((evt.normalizedX ?? 0.5) * 100),
+      yPercent: Math.round((evt.normalizedY ?? 0.5) * 100),
+      normalizedX: evt.normalizedX ?? 0.5,
+      normalizedY: evt.normalizedY ?? 0.5,
+      x: evt.x,
+      y: evt.y,
+      clickCount: 1,
+      timestamp: evt.timestamp,
+      sessionId: evt.sessionId,
+      participantId: evt.participantId
+    };
+  });
 
-  // Screen heatmaps mapped to real snapshots
+  // Capturas sem a imagem embutida (a imagem é servida por /api/snapshots/:id/image)
+  const lightSnapshots = snapshots.map(snapshotMeta);
+
   const screenHeatmaps: Record<string, any> = {};
-  snapshots.forEach((snap) => {
-    const snapPoints = heatmap.filter((p) => p.screenshotId === snap.snapshotId || p.screen === snap.screenId);
-    screenHeatmaps[snap.screenId] = {
+  lightSnapshots.forEach((snap) => {
+    const entry = screenHeatmaps[snap.screenId] || {
       screenId: snap.screenId,
       screenName: snap.screenName,
-      totalClicks: snapPoints.length,
-      rageClicks: 0,
-      deadClicks: 0,
-      snapshot: snap,
-      snapshots: [snap],
-      points: snapPoints,
+      points: heatmap.filter((p) => p.screen === snap.screenId),
+      snapshots: [],
       zones: []
     };
+    entry.snapshots.push(snap);
+    screenHeatmaps[snap.screenId] = entry;
+  });
+  Object.values(screenHeatmaps).forEach((entry: any) => {
+    // imagem-base: captura de participante mais recente; senão a do mapeamento
+    entry.snapshots.sort((a: any, b: any) => (a.sessionId === 'MAPEAMENTO' ? 1 : 0) - (b.sessionId === 'MAPEAMENTO' ? 1 : 0) || String(b.timestamp).localeCompare(String(a.timestamp)));
+    entry.snapshot = entry.snapshots[0];
+    entry.totalClicks = entry.points.length;
   });
 
   return res.json({
@@ -1057,7 +1071,7 @@ app.get('/api/tests/:id/results', (req, res) => {
     screenHeatmaps,
     sessions,
     participants,
-    snapshots
+    snapshots: lightSnapshots
   });
 });
 
@@ -1716,6 +1730,11 @@ export default function App() {
 // In-memory snapshots store on the server
 const serverSnapshotsStore: any[] = [];
 
+function snapshotMeta(snap: any) {
+  const { image, thumbnail, ...rest } = snap;
+  return { ...rest, hasImage: typeof image === 'string', imageUrl: `/api/snapshots/${encodeURIComponent(snap.snapshotId)}/image` };
+}
+
 // Serve UXLab SDK files directly
 app.use('/sdk', express.static(path.join(process.cwd(), 'public/sdk')));
 
@@ -1860,7 +1879,15 @@ app.post('/api/snapshots', (req, res) => {
   );
   if (dupIdx !== -1) serverSnapshotsStore.splice(dupIdx, 1);
   serverSnapshotsStore.unshift(fullSnapshot);
-  if (serverSnapshotsStore.length > 200) serverSnapshotsStore.pop();
+  // Por teste + tela: guarda a do mapeamento e as 2 capturas de participante mais recentes
+  const sameScreen = serverSnapshotsStore.filter(
+    (s) => s.testId === fullSnapshot.testId && s.screenId === fullSnapshot.screenId && s.sessionId !== 'MAPEAMENTO'
+  );
+  sameScreen.slice(2).forEach((old) => {
+    const i = serverSnapshotsStore.indexOf(old);
+    if (i !== -1) serverSnapshotsStore.splice(i, 1);
+  });
+  while (serverSnapshotsStore.length > 400) serverSnapshotsStore.pop();
   return res.json({ success: true, snapshotId: fullSnapshot.snapshotId });
 });
 
@@ -1869,7 +1896,19 @@ app.get('/api/snapshots', (req, res) => {
   let filtered = [...serverSnapshotsStore];
   if (testId) filtered = filtered.filter(s => s.testId === testId);
   if (sessionId) filtered = filtered.filter(s => s.sessionId === sessionId);
-  return res.json(filtered);
+  return res.json(filtered.map(snapshotMeta));
+});
+
+// Imagem da captura (binário, com cache) — evita trafegar base64 dentro do JSON de resultados
+app.get('/api/snapshots/:id/image', (req, res) => {
+  const snap = serverSnapshotsStore.find((s) => s.snapshotId === req.params.id);
+  if (!snap || typeof snap.image !== 'string') return res.status(404).end();
+  const m = snap.image.match(/^data:([^;,]+)(;base64)?,(.*)$/s);
+  if (!m) return res.status(415).end();
+  const body = m[2] ? Buffer.from(m[3], 'base64') : Buffer.from(decodeURIComponent(m[3]));
+  res.setHeader('Content-Type', m[1]);
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  return res.send(body);
 });
 
 // Setup Vite middleware in dev, static files in production

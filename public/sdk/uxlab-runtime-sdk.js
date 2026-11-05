@@ -33,7 +33,7 @@
       console.log('[UXLab SDK] init', config);
     }
   };
-  window.UXLab.version = '3.0.0';
+  window.UXLab.version = '3.1.0';
   window.UXLab.getCurrentScreen = function () {
     return currentScene;
   };
@@ -116,6 +116,29 @@
     return best ? best.el : null;
   }
 
+  // Valores digitados pelo participante (nome, CPF...) nunca entram na identificação do cenário
+  var typedValues = [];
+  function isTypedValue(text) {
+    var low = text.toLowerCase();
+    for (var i = 0; i < typedValues.length; i++) {
+      if (typedValues[i].length >= 3 && low.indexOf(typedValues[i]) !== -1) return true;
+    }
+    return false;
+  }
+  document.addEventListener(
+    'input',
+    function (e) {
+      var el = e.target;
+      if (!el || el.type === 'password') return;
+      var v = clean(el.value || el.textContent || '').toLowerCase();
+      if (v.length >= 3 && typedValues.indexOf(v) === -1) {
+        typedValues.push(v);
+        if (typedValues.length > 40) typedValues.shift();
+      }
+    },
+    true
+  );
+
   // Blocos de texto com tamanho de fonte (para hierarquia tipográfica)
   function collectTextBlocks(scope) {
     var blocks = [];
@@ -133,6 +156,8 @@
       if (el.closest(IGNORE) || el.closest(INTERACTIVE)) continue;
       var text = clean(el.innerText || el.textContent);
       if (isNoiseText(text)) continue;
+      if (matchStep(text) || /^\d+\s*(de|of|\/)\s*\d+/i.test(text)) continue; // indicador de etapa não é título
+      if (isTypedValue(text)) continue;
       if (!isVisible(el)) continue;
       var s = window.getComputedStyle(el);
       var fs = parseFloat(s.fontSize) || 0;
@@ -267,12 +292,24 @@
       }
     }
     if (!title) title = clean(document.title) || 'Tela sem título';
+    // tela ainda carregando (só textos pequenos de cabeçalho): não identifica cenário
+    var loading = !dialog && blocks.length > 0 && maxScoreOf(blocks) < 15;
 
     var stepLabel = findStepLabel(scope);
-    var parts = [dialog ? 'modal' : '', title, stepLabel, subtitle].filter(Boolean);
+    // Com indicador de etapa, título + etapa já identificam o cenário; o subtítulo
+    // (seções, nomes) muda com o conteúdo e geraria IDs diferentes para a mesma tela.
+    var parts = [dialog ? 'modal' : '', title, stepLabel, stepLabel ? '' : subtitle].filter(Boolean);
     var screenId = slugify(parts.join(' ')) || 'tela';
     var screenName = (dialog ? 'Modal: ' : '') + title + (subtitle ? ' — ' + subtitle : '') + (stepLabel ? ' (' + stepLabel + ')' : '');
-    return buildScene(screenId, screenName, title, subtitle, stepLabel, !!dialog, scope);
+    var scene = buildScene(screenId, screenName, title, subtitle, stepLabel, !!dialog, scope);
+    scene.loading = loading || undefined;
+    return scene;
+  }
+
+  function maxScoreOf(blocks) {
+    var mx = 0;
+    for (var i = 0; i < blocks.length; i++) if (blocks[i].score > mx) mx = blocks[i].score;
+    return mx;
   }
 
   function buildScene(screenId, screenName, title, subtitle, stepLabel, isDialog, scope) {
@@ -297,6 +334,7 @@
   var lastClick = null;
   var pendingTimer = null;
   var pendingSince = 0;
+  var candidate = null;
 
   function scheduleCheck(delay) {
     var now = Date.now();
@@ -317,10 +355,23 @@
       console.warn('[UXLab SDK] falha ao calcular cenário', e);
       return;
     }
-    if (currentScene && currentScene.screenId === scene.screenId) {
-      currentScene = scene; // atualiza ações/campos sem emitir troca
+    if (scene.loading) {
+      scheduleCheck(500);
       return;
     }
+    if (currentScene && currentScene.screenId === scene.screenId) {
+      currentScene = scene; // atualiza ações/campos sem emitir troca
+      candidate = null;
+      return;
+    }
+    // só confirma a troca se o cenário continuar o mesmo após o DOM assentar (evita estados de transição)
+    if (!candidate || candidate.screenId !== scene.screenId) {
+      candidate = scene;
+      if (pendingTimer) clearTimeout(pendingTimer);
+      pendingTimer = setTimeout(runCheck, 650);
+      return;
+    }
+    candidate = null;
     var previous = currentScene;
     currentScene = scene;
     var trigger = lastClick && Date.now() - lastClick.t < 6000 ? lastClick.label : undefined;
@@ -329,8 +380,17 @@
     if (!capturedScreens[scene.screenId]) {
       capturedScreens[scene.screenId] = true;
       setTimeout(function () {
-        if (currentScene && currentScene.screenId === scene.screenId) captureViewport(scene);
-      }, 500);
+        // confere o DOM de novo: se já abriu um modal ou mudou de tela, a captura fica para depois
+        var now;
+        try {
+          now = computeScene();
+        } catch (err) {}
+        if (currentScene && currentScene.screenId === scene.screenId && now && now.screenId === scene.screenId) {
+          captureViewport(scene);
+        } else {
+          capturedScreens[scene.screenId] = false;
+        }
+      }, 900);
     }
   }
 
@@ -360,6 +420,16 @@
     return c.toDataURL('image/jpeg', quality);
   }
 
+  var MAX_CAPTURE_HEIGHT = 4000;
+  function docSize() {
+    var de = document.documentElement;
+    var b = document.body;
+    return {
+      w: Math.max(window.innerWidth, de.clientWidth || 0),
+      h: Math.max(window.innerHeight, de.scrollHeight || 0, b ? b.scrollHeight : 0)
+    };
+  }
+
   function captureViewport(scene) {
     scene = scene || currentScene || computeScene();
     sendToParent({
@@ -372,21 +442,27 @@
       sendToParent({ type: 'SCREEN_CAPTURE_FAILED', screenId: scene.screenId, error: 'html2canvas indisponível' });
       return;
     }
+    // Página inteira (não só a parte visível): os cliques são normalizados pelo documento,
+    // então o mapa de calor bate mesmo quando o participante rolou a tela.
+    var doc = docSize();
+    var capH = Math.min(doc.h, MAX_CAPTURE_HEIGHT);
     window
       .html2canvas(document.body, {
         useCORS: true,
         allowTaint: false,
         logging: false,
         scale: 1,
-        x: window.scrollX,
-        y: window.scrollY,
-        width: window.innerWidth,
-        height: window.innerHeight,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        width: doc.w,
+        height: capH,
         windowWidth: window.innerWidth,
         windowHeight: window.innerHeight
       })
       .then(function (canvas) {
-        var image = scaleCanvas(canvas, 1440, 0.82);
+        var image = scaleCanvas(canvas, 1280, 0.72);
         var thumbnail = scaleCanvas(canvas, 360, 0.6);
         sendToParent({
           type: 'SCREEN_CAPTURED',
@@ -401,7 +477,10 @@
           devicePixelRatio: window.devicePixelRatio || 1,
           scrollX: window.scrollX,
           scrollY: window.scrollY,
-          documentHeight: document.documentElement.scrollHeight,
+          documentWidth: doc.w,
+          documentHeight: doc.h,
+          capturedHeight: capH,
+          fullPage: true,
           sessionId: sessionId,
           participantId: participantId,
           testId: testId,
@@ -437,6 +516,19 @@
       var target = e.target && e.target.closest ? e.target.closest(INTERACTIVE) || e.target : e.target;
       var label = labelOf(target) || (target && target.tagName ? target.tagName.toLowerCase() : 'elemento');
       lastClick = { label: label, t: Date.now() };
+      var doc = docSize();
+      var px = e.clientX + window.scrollX;
+      var py = e.clientY + window.scrollY;
+      var rect;
+      try {
+        var r = target.getBoundingClientRect();
+        rect = {
+          x: (r.left + window.scrollX) / doc.w,
+          y: (r.top + window.scrollY) / doc.h,
+          w: r.width / doc.w,
+          h: r.height / doc.h
+        };
+      } catch (err) {}
       sendToParent({
         type: 'INTERACTION',
         eventType: 'CLICK',
@@ -444,6 +536,13 @@
         y: e.clientY,
         normalizedX: e.clientX / window.innerWidth,
         normalizedY: e.clientY / window.innerHeight,
+        pageX: px,
+        pageY: py,
+        pageNX: px / doc.w,
+        pageNY: py / doc.h,
+        docWidth: doc.w,
+        docHeight: doc.h,
+        elementRect: rect,
         element: label,
         tagName: target && target.tagName,
         // clicável de verdade: elemento interativo ou com cursor de mão (divs com onClick no Figma Make)

@@ -112,12 +112,14 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
 
     const imageOf = (id: string) => {
       const hm = heatmapList.find((h) => h.screenId === id);
-      const real = hm?.snapshot?.image || hm?.snapshots?.[0]?.image;
+      const snap: any = hm?.snapshot || hm?.snapshots?.[0];
+      const real = snap ? snap.image || snap.imageUrl : undefined;
+      const fromParticipant = !!real && snap.sessionId !== 'MAPEAMENTO';
       const mapped = test.screenMap?.find((m) => m.screenId === id)?.thumbnail;
       return {
         thumb: real || mapped,
         full: real || mapped,
-        source: real ? ('participante' as const) : mapped ? ('mapeamento' as const) : undefined
+        source: fromParticipant ? ('participante' as const) : real || mapped ? ('mapeamento' as const) : undefined
       };
     };
 

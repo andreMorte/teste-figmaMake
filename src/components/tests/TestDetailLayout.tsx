@@ -18,9 +18,9 @@ import {
   runAiAnalysis
 } from '../../services/dataService';
 import { getShareableTestUrl } from '../../utils/figmaUtils';
-import { ClickZoningHeatmapView } from '../analytics/ClickZoningHeatmapView';
 import { JourneyVisualizer } from '../analytics/JourneyVisualizer';
 import { OverviewPanel } from '../analytics/OverviewPanel';
+import { HeatmapExplorer } from '../analytics/HeatmapExplorer';
 import {
   Activity,
   Award,
@@ -504,12 +504,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
       {/* TAB: ZONEAMENTO DE CLIQUES EM COMPONENTES & HEATMAP COMPORTAMENTAL */}
       {/* ========================================================================= */}
       {activeTab === 'heatmaps' && test && (
-        <ClickZoningHeatmapView
-          test={test}
-          screenHeatmaps={screenHeatmaps}
-          componentZones={componentZones}
-          sessions={sessions}
-        />
+        <HeatmapExplorer test={test} sessions={sessions} points={heatmap as any} screenHeatmaps={screenHeatmaps as any} isDemo={isDemo} />
       )}
 
       {/* ========================================================================= */}
