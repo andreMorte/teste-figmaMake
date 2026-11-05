@@ -1075,6 +1075,23 @@ app.get('/api/tests/:id/results', (req, res) => {
   });
 });
 
+// Excluir teste (com participantes, sessões, eventos, SUS e capturas)
+app.delete('/api/tests/:id', (req, res) => {
+  const { id } = req.params;
+  const idx = serverTestsStore.findIndex((t) => t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Test not found' });
+  serverTestsStore.splice(idx, 1);
+  const purge = (arr: any[], pred: (x: any) => boolean) => {
+    for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) arr.splice(i, 1);
+  };
+  purge(serverParticipantsStore, (p) => p.testId === id);
+  purge(serverSessionsStore, (s) => s.testId === id);
+  purge(serverEventsStore, (e) => e.testId === id);
+  purge(serverSusResponsesStore, (s) => s.testId === id);
+  purge(serverSnapshotsStore, (s) => s.testId === id);
+  return res.json({ success: true });
+});
+
 // 8. Reset Test Data (Empty State Testing)
 app.post('/api/tests/:id/reset', (req, res) => {
   const { id } = req.params;

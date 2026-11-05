@@ -112,7 +112,7 @@ export async function getTests(): Promise<UsabilityTest[]> {
     const res = await fetch('/api/tests');
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         testsCache = data;
         setStored(STORAGE_KEYS.TESTS, testsCache);
         return [...testsCache];
@@ -270,6 +270,13 @@ export async function createTask(testId: string, task: Omit<TestTask, 'id' | 'or
   };
   setStored(STORAGE_KEYS.TESTS, testsCache);
   return newTask;
+}
+
+export async function deleteTest(testId: string): Promise<void> {
+  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 404) throw new Error('Falha ao excluir o teste');
+  testsCache = testsCache.filter((t) => t.id !== testId);
+  setStored(STORAGE_KEYS.TESTS, testsCache);
 }
 
 // Vagas de participantes do teste
