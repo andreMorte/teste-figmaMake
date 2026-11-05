@@ -243,28 +243,76 @@ Faça:
 4. recommendations: ações priorizadas e concretas para o produto.
 5. summary: 2 a 4 frases com a conclusão principal.
 
-Regras: use somente os dados fornecidos, não invente falas nem participantes; cite trechos curtos entre aspas como evidência; se houver poucas respostas, diga isso no resumo.`;
+Regras: use somente os dados fornecidos, não invente falas nem participantes; cite trechos curtos entre aspas como evidência; se houver poucas respostas, diga isso no resumo.
+
+Responda SOMENTE com um JSON válido, sem texto antes ou depois, exatamente neste formato:
+{"summary":"...","items":[{"id":"Q1","category":"dor|positivo|sugestao|neutro","theme":"...","intensity":1,"emotion":"...","insight":"..."}],"themes":[{"name":"...","kind":"dor|positivo|sugestao","description":"...","itemIds":["Q1"],"severity":"alta|media|baixa"}],"behavior":{"overallTone":"...","patterns":[{"pattern":"...","evidence":"...","meaning":"..."}],"participants":[{"participantKey":"<id do participante>","profile":"...","tone":"...","engagement":"alto|medio|baixo","signals":["..."],"saysVsDoes":"..."}]},"recommendations":[{"title":"...","detail":"...","priority":"alta|media|baixa","themes":["..."]}]}`;
 }
 
 const parseJson = (text: string) => {
   const t = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-  return JSON.parse(t);
+  const a = t.indexOf('{');
+  const b = t.lastIndexOf('}');
+  return JSON.parse(a >= 0 && b > a ? t.slice(a, b + 1) : t);
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = <T,>(p: Promise<T>, ms: number, label: string) =>
   Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label}: tempo esgotado (${Math.round(ms / 1000)}s)`)), ms))]);
 
-// Tenta vários modelos; em sobrecarga (503/429) espera um pouco e passa para o próximo.
+// Diagnóstico das últimas tentativas (sem segredos), exposto em GET /api/ai/status
+export const aiStatus: { discovered: string[]; discoveredAt?: string; discoverError?: string; attempts: { at: string; model: string; ms: number; ok: boolean; error?: string }[] } = {
+  discovered: [],
+  attempts: []
+};
+const logAttempt = (a: { model: string; ms: number; ok: boolean; error?: string }) => {
+  aiStatus.attempts.unshift({ at: new Date().toISOString(), ...a });
+  aiStatus.attempts.length = Math.min(aiStatus.attempts.length, 30);
+};
+
+// Pergunta ao Google quais modelos esta chave pode usar e ordena os "Flash" do mais novo para o mais antigo.
+let discoveredUntil = 0;
+async function discoverModels(): Promise<string[]> {
+  if (Date.now() < discoveredUntil) return aiStatus.discovered;
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', {
+      headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY! }
+    });
+    const body: any = await res.json();
+    if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
+    const version = (n: string) => Number((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
+    const names: string[] = (body.models || [])
+      .filter((m: any) => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map((m: any) => String(m.name || '').replace(/^models\//, ''))
+      .filter((n: string) => /^gemini-.*flash/.test(n) && !/image|tts|audio|live|embed|vision|thinking|exp|8b/i.test(n));
+    const rank = (n: string) => {
+      const stable = /^gemini-\d+(\.\d+)?-flash$/.test(n) ? 0 : /^gemini-\d+(\.\d+)?-flash-lite$/.test(n) ? 1 : /latest$/.test(n) ? 2 : 3;
+      return stable * 100 - version(n);
+    };
+    aiStatus.discovered = [...new Set(names)].sort((a, b) => rank(a) - rank(b));
+    aiStatus.discoverError = undefined;
+    discoveredUntil = Date.now() + 6 * 3600 * 1000;
+  } catch (err: any) {
+    aiStatus.discoverError = String(err?.message || err).slice(0, 200);
+    discoveredUntil = Date.now() + 10 * 60 * 1000;
+  }
+  aiStatus.discoveredAt = new Date().toISOString();
+  return aiStatus.discovered;
+}
+
+// JSON simples (sem schema rígido, que deixava o Gemini lento a ponto de dar 504).
+// Sobrecarga (503/429): tenta o mesmo modelo mais uma vez; lentidão, modelo desativado etc.: passa para o próximo.
 async function runGemini(prompt: string) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const models = [process.env.GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'].filter(Boolean) as string[];
+  const discovered = await discoverModels();
+  const models = [...new Set([process.env.GEMINI_MODEL, ...discovered.slice(0, 3), 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean) as string[])].slice(0, 5);
   const deadline = Date.now() + 85000;
   let lastErr: any;
-  for (const model of [...new Set(models)]) {
+  for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const left = deadline - Date.now();
       if (left < 5000) throw lastErr || new Error('IA sem resposta no tempo limite');
+      const t0 = Date.now();
       try {
         const r = await withTimeout(
           ai.models.generateContent({
@@ -272,29 +320,31 @@ async function runGemini(prompt: string) {
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
-              responseJsonSchema: SCHEMA,
               temperature: 0.3,
               maxOutputTokens: 8192,
-              // sem etapa de "pensamento": responde bem mais rápido (só nos modelos 2.5 Flash, que aceitam 0)
-              ...(/^gemini-2\.5-flash(-lite)?$/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-              httpOptions: { timeout: Math.min(60000, left) }
+              // sem etapa de "pensamento" onde é possível desligar (2.5 Flash): responde bem mais rápido
+              ...(/^gemini-2\.5-flash(-lite)?$/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
             } as any
           }),
-          Math.min(62000, left),
+          Math.min(35000, left),
           model
         );
-        return { model, json: parseJson(r.text || '') };
+        const json = parseJson(r.text || '');
+        logAttempt({ model, ms: Date.now() - t0, ok: true });
+        console.log(`[IA] ${model} respondeu em ${Date.now() - t0}ms`);
+        return { model, json };
       } catch (err: any) {
         lastErr = err;
         const msg = String(err?.message || err);
-        console.warn(`[IA] ${model} tentativa ${attempt + 1}: ${msg.slice(0, 160)}`);
-        if (/not found|404|unsupported|is not supported/i.test(msg)) break; // modelo não existe: próximo
-        if (/503|504|429|UNAVAILABLE|DEADLINE|RESOURCE_EXHAUSTED|overload|high demand|tempo esgotado|timeout|fetch failed|ECONN|aborted/i.test(msg)) {
-          if (attempt === 0) await sleep(2500);
-          continue; // tenta de novo e depois troca de modelo
+        logAttempt({ model, ms: Date.now() - t0, ok: false, error: msg.slice(0, 220) });
+        console.warn(`[IA] ${model} tentativa ${attempt + 1} (${Date.now() - t0}ms): ${msg.slice(0, 160)}`);
+        if (/503|UNAVAILABLE|overload|high demand/i.test(msg) && attempt === 0) {
+          await sleep(2000);
+          continue; // mesmo modelo, mais uma vez
         }
-        if (/JSON|Unexpected token/i.test(msg)) continue; // resposta mal formada: tenta de novo
-        throw err; // chave inválida, permissão etc.
+        if (/JSON|Unexpected token|Unterminated/i.test(msg) && attempt === 0) continue; // resposta mal formada
+        if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) throw err; // chave inválida: não adianta trocar
+        break; // próximo modelo
       }
     }
   }
@@ -345,13 +395,30 @@ function normalize(a: any, items: QualItem[], fallback: QualAnalysis): QualAnaly
         insight: String(it.insight || '')
       };
     }),
-    themes: (a?.themes || []).map((t: any) => ({ ...t, itemIds: (t.itemIds || []).filter((x: string) => ids.has(x)) })),
+    themes: (Array.isArray(a?.themes) ? a.themes : [])
+      .filter((t: any) => t && ['dor', 'positivo', 'sugestao'].includes(t.kind))
+      .map((t: any) => ({
+        name: String(t.name || 'Tema'),
+        kind: t.kind,
+        description: String(t.description || ''),
+        itemIds: (Array.isArray(t.itemIds) ? t.itemIds : []).filter((x: string) => ids.has(x)),
+        severity: ['alta', 'media', 'baixa'].includes(t.severity) ? t.severity : 'media'
+      })),
     behavior: {
       overallTone: String(a?.behavior?.overallTone || fallback.behavior.overallTone),
-      patterns: a?.behavior?.patterns || [],
-      participants: a?.behavior?.participants || fallback.behavior.participants
+      patterns: Array.isArray(a?.behavior?.patterns) ? a.behavior.patterns : [],
+      participants: (Array.isArray(a?.behavior?.participants) ? a.behavior.participants : fallback.behavior.participants).map((p: any) => ({
+        ...p,
+        signals: Array.isArray(p.signals) ? p.signals : [],
+        engagement: ['alto', 'medio', 'baixo'].includes(p.engagement) ? p.engagement : 'medio'
+      }))
     },
-    recommendations: a?.recommendations || []
+    recommendations: (Array.isArray(a?.recommendations) ? a.recommendations : []).map((r: any) => ({
+      title: String(r.title || ''),
+      detail: String(r.detail || ''),
+      priority: ['alta', 'media', 'baixa'].includes(r.priority) ? r.priority : 'media',
+      themes: Array.isArray(r.themes) ? r.themes : []
+    }))
   };
 }
 

@@ -4,7 +4,7 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { Pool } from 'pg';
-import { collectQualitative, hashInput, analyzeQualitative, aiEngine, QualResult } from './qualitative';
+import { collectQualitative, hashInput, analyzeQualitative, aiEngine, aiStatus, QualResult } from './qualitative';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -1197,6 +1197,10 @@ function scheduleQualitative(testId: string) {
     }, 15000)
   );
 }
+
+app.get('/api/ai/status', (req, res) => {
+  res.json({ engine: aiEngine(), model: process.env.GEMINI_MODEL || null, ...aiStatus });
+});
 
 app.get('/api/tests/:id/qualitative', async (req, res) => {
   const { id } = req.params;
