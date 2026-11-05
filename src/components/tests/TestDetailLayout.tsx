@@ -138,7 +138,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
   };
 
   const copyShareLink = () => {
-    const url = getShareableTestUrl(testId, test?.prototypeUrl);
+    const url = getShareableTestUrl(testId);
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -214,81 +214,21 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
                 </a>
               </div>
             )}
-          </div>
 
-          {/* Quick Action Buttons */}
-          <div className="flex items-center gap-2.5 flex-wrap">
-            {/* Abrir Protótipo Validado em Nova Aba */}
-            {test.prototypeUrl && (
-              <a
-                href={test.prototypeUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold border border-purple-200 flex items-center gap-1.5 transition-colors shadow-xs"
-                title="Abre exatamente o protótipo do Figma ou o link colocado na URL e validado"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-purple-600" />
-                <span>Abrir Protótipo</span>
-              </a>
-            )}
-
-            {/* Copiar Link do Protótipo */}
-            {test.prototypeUrl && (
-              <button
-                type="button"
-                onClick={copyPrototypeUrl}
-                className="px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200 flex items-center gap-1.5 transition-colors"
-                title="Copiar URL exata do protótipo Figma/Web"
-              >
-                {copiedProtoLink ? <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedProtoLink ? 'Copiado!' : 'Copiar Protótipo'}</span>
+            {/* Link que vai para os participantes */}
+            <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+              <Share2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="font-semibold text-slate-700">Link dos participantes:</span>
+              <span className="font-mono text-blue-700 truncate max-w-xs sm:max-w-md bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                {getShareableTestUrl(test.id)}
+              </span>
+              <button type="button" onClick={copyShareLink} className="text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1 hover:underline">
+                {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedLink ? 'Copiado!' : 'Copiar'}</span>
               </button>
-            )}
-
-            {/* Copiar Link do Teste de Usabilidade */}
-            <button
-              type="button"
-              onClick={copyShareLink}
-              className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-200 flex items-center gap-1.5 transition-colors shadow-xs"
-              title="Copiar link de teste para participantes"
-            >
-              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" /> : <Share2 className="w-3.5 h-3.5 text-blue-600" />}
-              <span>{copiedLink ? 'Link Copiado!' : 'Copiar Link /share'}</span>
-            </button>
-
-            {/* Simular Participante */}
-            <button
-              type="button"
-              onClick={() => onOpenRunner(test.id, test.prototypeUrl)}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
-              title="Simular execução do teste carregando o protótipo validado"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Simular Participante</span>
-            </button>
-
-            {/* Engine de Validação */}
-            <button
-              type="button"
-              onClick={() => onOpenValidationEngine(test.prototypeUrl, test.id, test.trackingId)}
-              className="px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200 flex items-center gap-1.5 transition-colors"
-              title="Inspecionar AST e validação do protótipo"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Engine</span>
-            </button>
-
-            {/* Exportar Figma Make (.zip) */}
-            <button
-              type="button"
-              onClick={() => setIsExportFigmaOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold border border-purple-200/80 flex items-center gap-1.5 transition-colors shadow-xs"
-              title="Baixar pacote .zip do projeto pronto para Figma Make"
-            >
-              <FolderArchive className="w-3.5 h-3.5 text-purple-600" />
-              <span>Figma Make (.zip)</span>
-            </button>
+            </div>
           </div>
+
         </div>
 
         {/* Global Navigation Tabs inside Test */}

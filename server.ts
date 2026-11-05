@@ -1090,8 +1090,9 @@ app.post('/api/tests/:id/reset', (req, res) => {
   for (let i = serverSusResponsesStore.length - 1; i >= 0; i--) {
     if (serverSusResponsesStore[i].testId === id) serverSusResponsesStore.splice(i, 1);
   }
+  // mantém as capturas do mapeamento (imagem-base do heatmap); apaga só as de participantes
   for (let i = serverSnapshotsStore.length - 1; i >= 0; i--) {
-    if (serverSnapshotsStore[i].testId === id) serverSnapshotsStore.splice(i, 1);
+    if (serverSnapshotsStore[i].testId === id && serverSnapshotsStore[i].sessionId !== 'MAPEAMENTO') serverSnapshotsStore.splice(i, 1);
   }
 
   const test = serverTestsStore.find((t) => t.id === id);
@@ -1897,6 +1898,18 @@ app.get('/api/snapshots', (req, res) => {
   if (testId) filtered = filtered.filter(s => s.testId === testId);
   if (sessionId) filtered = filtered.filter(s => s.sessionId === sessionId);
   return res.json(filtered.map(snapshotMeta));
+});
+
+// Diagnóstico do SDK (falhas de captura etc.) — últimos 200 registros em memória
+const diagnosticsLog: any[] = [];
+app.post('/api/diagnostics', (req, res) => {
+  diagnosticsLog.unshift({ ...req.body, receivedAt: new Date().toISOString() });
+  if (diagnosticsLog.length > 200) diagnosticsLog.pop();
+  res.json({ ok: true });
+});
+app.get('/api/diagnostics', (req, res) => {
+  const { testId } = req.query;
+  res.json(testId ? diagnosticsLog.filter((d) => d.testId === testId) : diagnosticsLog);
 });
 
 // Imagem da captura (binário, com cache) — evita trafegar base64 dentro do JSON de resultados

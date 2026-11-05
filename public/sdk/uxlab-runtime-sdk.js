@@ -24,7 +24,7 @@
   };
   var testId = attr('data-test-id', '');
   var trackingId = attr('data-tracking-id', '');
-  var sessionId = attr('data-session-id', '');
+  var sessionId = attr('data-session-id', ''); // atualizado pelo runner quando o participante inicia
   var participantId = attr('data-participant-id', '');
   var mode = attr('data-mode', 'run'); // 'run' (participante) | 'map' (mapeamento)
 
@@ -33,7 +33,7 @@
       console.log('[UXLab SDK] init', config);
     }
   };
-  window.UXLab.version = '3.1.0';
+  window.UXLab.version = '3.2.0';
   window.UXLab.getCurrentScreen = function () {
     return currentScene;
   };
@@ -188,7 +188,8 @@
     }
     return clean(m[0]);
   }
-  function findStepLabel(scope) {
+  // Indicador de etapa + nome da etapa ("3 de 3 - Simulação" -> {label: "3 de 3", name: "Simulação"})
+  function findStepInfo(scope) {
     var walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
     var seen = new Set();
     var node;
@@ -201,7 +202,26 @@
       var v = clean(el.textContent);
       if (!v || v.length > 40) continue;
       var found = matchStep(v);
-      if (found && isVisible(el)) return found;
+      if (found && isVisible(el)) return { label: found, name: stepNameNear(el, found) };
+    }
+    return { label: '', name: '' };
+  }
+
+  function stepNameNear(el, label) {
+    var containers = [el, el.parentElement];
+    for (var c = 0; c < containers.length; c++) {
+      var box = containers[c];
+      if (!box) continue;
+      var lines = (box.innerText || '').split('\n').map(clean).filter(Boolean);
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].indexOf(label) === -1) continue;
+        var rest = clean(lines[i].replace(label, '').replace(/^[\s\-–—:|•·]+/, ''));
+        if (rest && rest.length <= 40 && !isTypedValue(rest)) return rest;
+        var next = lines[i + 1];
+        if (next && next.length <= 40 && !/pr[óo]xim|passo|anterior/i.test(next) && !isTypedValue(next)) {
+          return clean(next.replace(/^[\s\-–—:|•·]+/, ''));
+        }
+      }
     }
     return '';
   }
@@ -295,12 +315,20 @@
     // tela ainda carregando (só textos pequenos de cabeçalho): não identifica cenário
     var loading = !dialog && blocks.length > 0 && maxScoreOf(blocks) < 15;
 
-    var stepLabel = findStepLabel(scope);
-    // Com indicador de etapa, título + etapa já identificam o cenário; o subtítulo
-    // (seções, nomes) muda com o conteúdo e geraria IDs diferentes para a mesma tela.
-    var parts = [dialog ? 'modal' : '', title, stepLabel, stepLabel ? '' : subtitle].filter(Boolean);
+    var step = dialog ? { label: '', name: '' } : findStepInfo(scope);
+    var stepLabel = step.label;
+    var parts;
+    var screenName;
+    if (stepLabel && step.name) {
+      // Etapa nomeada ("3 de 3 - Simulação"): é o identificador mais estável do fluxo,
+      // não depende de qual título/cartão aparece maior na tela.
+      parts = [step.name, stepLabel];
+      screenName = step.name + ' (' + stepLabel + ')' + (title && title !== step.name ? ' — ' + title : '');
+    } else {
+      parts = [dialog ? 'modal' : '', title, stepLabel, stepLabel ? '' : subtitle].filter(Boolean);
+      screenName = (dialog ? 'Modal: ' : '') + title + (subtitle ? ' — ' + subtitle : '') + (stepLabel ? ' (' + stepLabel + ')' : '');
+    }
     var screenId = slugify(parts.join(' ')) || 'tela';
-    var screenName = (dialog ? 'Modal: ' : '') + title + (subtitle ? ' — ' + subtitle : '') + (stepLabel ? ' (' + stepLabel + ')' : '');
     var scene = buildScene(screenId, screenName, title, subtitle, stepLabel, !!dialog, scope);
     scene.loading = loading || undefined;
     return scene;
@@ -341,7 +369,7 @@
     if (!pendingSince) pendingSince = now;
     if (pendingTimer) clearTimeout(pendingTimer);
     // espera o DOM "assentar", mas nunca mais que 1,5s (animações contínuas)
-    var wait = now - pendingSince > 1500 ? 0 : delay || 450;
+    var wait = now - pendingSince > 1500 ? 0 : delay || 300;
     pendingTimer = setTimeout(runCheck, wait);
   }
 
@@ -368,18 +396,22 @@
     if (!candidate || candidate.screenId !== scene.screenId) {
       candidate = scene;
       if (pendingTimer) clearTimeout(pendingTimer);
-      pendingTimer = setTimeout(runCheck, 650);
+      pendingTimer = setTimeout(runCheck, 350);
       return;
     }
     candidate = null;
+    commitScene(scene, true);
+  }
+
+  function commitScene(scene, useTrigger) {
     var previous = currentScene;
     currentScene = scene;
-    var trigger = lastClick && Date.now() - lastClick.t < 6000 ? lastClick.label : undefined;
-    lastClick = null;
+    var trigger = useTrigger && lastClick && Date.now() - lastClick.t < 6000 ? lastClick.label : undefined;
+    if (useTrigger) lastClick = null;
     emitScreenView(scene, previous, trigger);
     if (!capturedScreens[scene.screenId]) {
-      capturedScreens[scene.screenId] = true;
       setTimeout(function () {
+        if (capturedScreens[scene.screenId]) return;
         // confere o DOM de novo: se já abriu um modal ou mudou de tela, a captura fica para depois
         var now;
         try {
@@ -387,11 +419,29 @@
         } catch (err) {}
         if (currentScene && currentScene.screenId === scene.screenId && now && now.screenId === scene.screenId) {
           captureViewport(scene);
-        } else {
-          capturedScreens[scene.screenId] = false;
         }
-      }, 900);
+      }, 450);
     }
+  }
+
+  // Antes de cada clique: garante que o cenário visível foi registrado e capturado
+  // (modais e telas rápidas, que a pessoa fecha em menos de 1s, não se perdem).
+  function syncBeforeClick() {
+    var scene;
+    try {
+      scene = computeScene();
+    } catch (err) {
+      return;
+    }
+    if (scene.loading) return;
+    if (!currentScene || currentScene.screenId !== scene.screenId) {
+      if (pendingTimer) clearTimeout(pendingTimer);
+      pendingTimer = null;
+      pendingSince = 0;
+      candidate = null;
+      commitScene(scene, true);
+    }
+    if (!capturedScreens[scene.screenId]) captureViewport(scene); // clona o DOM antes do clique ter efeito
   }
 
   function emitScreenView(scene, previous, trigger) {
@@ -421,6 +471,28 @@
   }
 
   var MAX_CAPTURE_HEIGHT = 4000;
+
+  // O SDK roda na mesma origem do painel: salva a captura direto no servidor
+  // (não depende da versão do painel aberta no navegador).
+  function currentSessionId() {
+    if (sessionId) return sessionId;
+    return mode === 'map' ? 'MAPEAMENTO' : 'PRE-START';
+  }
+  function persistSnapshot(payload) {
+    if (!testId) return;
+    try {
+      var body = {};
+      for (var k in payload) if (k !== 'type' && k !== 'thumbnail') body[k] = payload[k];
+      if (mode === 'map') body.participantName = 'Mapeamento do pesquisador';
+      fetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(function () {});
+    } catch (e) {}
+  }
+  function reportDiagnostic(kind, data) {
+    try {
+      var body = { kind: kind, testId: testId, sessionId: currentSessionId(), mode: mode, url: location.pathname, ua: navigator.userAgent, viewport: [window.innerWidth, window.innerHeight], data: data, timestamp: new Date().toISOString() };
+      fetch('/api/diagnostics', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(function () {});
+    } catch (e) {}
+  }
   function docSize() {
     var de = document.documentElement;
     var b = document.body;
@@ -430,8 +502,10 @@
     };
   }
 
-  function captureViewport(scene) {
+  function captureViewport(scene, attempt) {
     scene = scene || currentScene || computeScene();
+    attempt = attempt || 1;
+    capturedScreens[scene.screenId] = true;
     sendToParent({
       type: 'SCREEN_CAPTURE_STARTED',
       screenId: scene.screenId,
@@ -451,7 +525,11 @@
         useCORS: true,
         allowTaint: false,
         logging: false,
-        scale: 1,
+        scale: attempt === 1 ? 1 : 0.6,
+        imageTimeout: 4000,
+        ignoreElements: function (el) {
+          return el.tagName === 'IFRAME' || el.tagName === 'VIDEO' || (el.hasAttribute && el.hasAttribute('data-uxlab-ignore'));
+        },
         x: 0,
         y: 0,
         scrollX: 0,
@@ -464,7 +542,7 @@
       .then(function (canvas) {
         var image = scaleCanvas(canvas, 1280, 0.72);
         var thumbnail = scaleCanvas(canvas, 360, 0.6);
-        sendToParent({
+        var payload = {
           type: 'SCREEN_CAPTURED',
           snapshotId: 'SHOT-' + scene.screenId.slice(0, 24) + '-' + Date.now().toString(36),
           screenId: scene.screenId,
@@ -486,15 +564,23 @@
           testId: testId,
           trackingId: trackingId,
           timestamp: new Date().toISOString()
-        });
+        };
+        payload.sessionId = currentSessionId();
+        payload.participantId = participantId || payload.sessionId;
+        persistSnapshot(payload);
+        sendToParent(payload);
       })
       .catch(function (err) {
-        sendToParent({
-          type: 'SCREEN_CAPTURE_FAILED',
-          screenId: scene.screenId,
-          error: (err && err.message) || 'Falha na captura',
-          timestamp: new Date().toISOString()
-        });
+        var msg = (err && err.message) || 'Falha na captura';
+        reportDiagnostic('capture_failed', { screenId: scene.screenId, attempt: attempt, error: msg });
+        if (attempt === 1) {
+          capturedScreens[scene.screenId] = false;
+          setTimeout(function () {
+            if (currentScene && currentScene.screenId === scene.screenId) captureViewport(scene, 2);
+          }, 600);
+          return;
+        }
+        sendToParent({ type: 'SCREEN_CAPTURE_FAILED', screenId: scene.screenId, error: msg, timestamp: new Date().toISOString() });
       });
   }
 
@@ -510,21 +596,40 @@
     return false;
   }
 
+  function isFixedLayer(el) {
+    for (var i = 0; el && el !== document.body && i < 20; i++, el = el.parentElement) {
+      try {
+        var pos = window.getComputedStyle(el).position;
+        if (pos === 'fixed' || pos === 'sticky') return true;
+      } catch (err) {}
+    }
+    return false;
+  }
+
+  // pointerdown chega antes de qualquer efeito do clique (alguns componentes reagem já no pointerdown)
+  document.addEventListener('pointerdown', function () { syncBeforeClick(); }, true);
+
   document.addEventListener(
     'click',
     function (e) {
+      syncBeforeClick();
       var target = e.target && e.target.closest ? e.target.closest(INTERACTIVE) || e.target : e.target;
       var label = labelOf(target) || (target && target.tagName ? target.tagName.toLowerCase() : 'elemento');
       lastClick = { label: label, t: Date.now() };
       var doc = docSize();
-      var px = e.clientX + window.scrollX;
-      var py = e.clientY + window.scrollY;
+      // Elementos fixos (modais, cabeçalhos) aparecem na captura como se a página estivesse
+      // no topo: para eles a posição vale sem o deslocamento da rolagem.
+      var fixed = isFixedLayer(e.target);
+      var offX = fixed ? 0 : window.scrollX;
+      var offY = fixed ? 0 : window.scrollY;
+      var px = e.clientX + offX;
+      var py = e.clientY + offY;
       var rect;
       try {
         var r = target.getBoundingClientRect();
         rect = {
-          x: (r.left + window.scrollX) / doc.w,
-          y: (r.top + window.scrollY) / doc.h,
+          x: (r.left + offX) / doc.w,
+          y: (r.top + offY) / doc.h,
           w: r.width / doc.w,
           h: r.height / doc.h
         };
@@ -563,6 +668,13 @@
     var d = ev.data;
     if (!d || typeof d !== 'object') return;
     if (d.type === 'UXLAB_TRIGGER_CAPTURE') captureViewport(currentScene);
+    if (d.type === 'UXLAB_SET_SESSION' && d.sessionId) {
+      sessionId = String(d.sessionId);
+      if (d.participantId) participantId = String(d.participantId);
+      // nova sessão: captura de novo os cenários para este participante
+      capturedScreens = {};
+      if (currentScene) setTimeout(function () { captureViewport(currentScene); }, 300);
+    }
     if (d.type === 'UXLAB_REQUEST_STATE') {
       sendToParent({ type: 'UXLAB_SDK_CONNECTED', testId: testId, trackingId: trackingId, mode: mode, status: 'connected', timestamp: new Date().toISOString() });
       if (currentScene) emitScreenView(currentScene, null, undefined);
@@ -582,7 +694,7 @@
     });
     sendToParent({ type: 'RUNTIME_LOADED', url: window.location.href, title: document.title, timestamp: new Date().toISOString() });
 
-    var observer = new MutationObserver(function () { scheduleCheck(450); });
+    var observer = new MutationObserver(function () { scheduleCheck(300); });
     observer.observe(document.body, {
       childList: true,
       subtree: true,

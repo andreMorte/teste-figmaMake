@@ -334,7 +334,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           ...({ documentWidth: data.documentWidth, capturedHeight: data.capturedHeight, fullPage: !!data.fullPage } as any)
         };
 
-        saveScreenSnapshot(snap);
+        // o SDK já salvou a captura no servidor (mesma origem); aqui só atualiza a tela local
+        saveScreenSnapshot(snap, false);
         setLatestSnapshot(snap);
 
         setPipelineSteps((prev) =>
@@ -651,6 +652,10 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         throw err;
       }
       setSession(sess);
+      // informa a sessão ao SDK dentro do protótipo (capturas passam a ser deste participante)
+      document.querySelectorAll('iframe').forEach((f) =>
+        f.contentWindow?.postMessage({ type: 'UXLAB_SET_SESSION', sessionId: sess.sessionId, participantId: sess.participantId }, '*')
+      );
       setPipelineSteps((prev) =>
         prev.map((s) => (s.step === 6 ? { ...s, status: 'success', detail: `${sess.sessionId} (${sess.participantName})` } : s))
       );
@@ -1276,7 +1281,12 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                   className="w-full h-full border-0 absolute inset-0 bg-white"
                   allow="clipboard-write; clipboard-read; fullscreen; accelerometer; autoplay; camera; encrypted-media; geolocation; gyroscope; microphone; midi; payment; picture-in-picture"
                   allowFullScreen
-                  onLoad={() => {
+                  onLoad={(e) => {
+                    // protótipo recarregado no meio do teste: reenvia a sessão ao SDK
+                    if (session) {
+                      const w = (e.currentTarget as HTMLIFrameElement).contentWindow;
+                      setTimeout(() => w?.postMessage({ type: 'UXLAB_SET_SESSION', sessionId: session.sessionId, participantId: session.participantId }, '*'), 800);
+                    }
                     setIframeLoaded(true);
                     setLifecycle((prev) => (prev === 'PROTOTYPE_LOAD_ERROR' ? prev : 'PROTOTYPE_LOADED'));
                     setPipelineSteps((prev) =>

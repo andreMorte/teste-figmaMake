@@ -443,7 +443,7 @@ export function getSessionSnapshots(sessionId: string): ScreenSnapshot[] {
 /**
  * Save new ScreenSnapshot produced from participant interaction
  */
-export function saveScreenSnapshot(snapshot: ScreenSnapshot): ScreenSnapshot {
+export function saveScreenSnapshot(snapshot: ScreenSnapshot, syncServer = true): ScreenSnapshot {
   const existingIdx = snapshotsMemoryCache.findIndex((s) => s.snapshotId === snapshot.snapshotId);
   if (existingIdx !== -1) {
     snapshotsMemoryCache[existingIdx] = snapshot;
@@ -453,6 +453,7 @@ export function saveScreenSnapshot(snapshot: ScreenSnapshot): ScreenSnapshot {
   persistSnapshots(snapshotsMemoryCache);
 
   // Also persist to server endpoint for real cross-origin runtime captures
+  if (!syncServer) return snapshot;
   try {
     fetch('/api/snapshots', {
       method: 'POST',

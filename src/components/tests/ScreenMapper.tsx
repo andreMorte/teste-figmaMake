@@ -176,23 +176,7 @@ export const ScreenMapper: React.FC<ScreenMapperProps> = ({
         }
       }
 
-      // A captura do mapeamento vira a imagem-base do mapa de calor desse cenário
-      if (data.type === 'SCREEN_CAPTURED' && data.screenId && data.image) {
-        fetch('/api/snapshots', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...data,
-            type: undefined,
-            thumbnail: undefined,
-            testId,
-            sessionId: 'MAPEAMENTO',
-            participantId: 'MAPEAMENTO',
-            participantName: 'Mapeamento do pesquisador'
-          })
-        }).catch(() => {});
-      }
-
+      // A captura do mapeamento é salva no servidor pelo próprio SDK (imagem-base do mapa de calor)
       if (data.type === 'SCREEN_CAPTURED' && data.screenId && data.thumbnail) {
         const latest = stateRef.current.screens;
         const idx = latest.findIndex((s) => s.screenId === data.screenId);

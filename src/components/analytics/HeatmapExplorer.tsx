@@ -203,7 +203,9 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
           id,
           name: nameOf(id),
           snap,
+          snaps: ((hm?.snapshots as SnapshotMeta[]) || (snap ? [snap] : [])).filter(Boolean),
           imageSrc: snap ? snap.image || snap.imageUrl : mapped?.thumbnail,
+          lowRes: !snap && !!mapped?.thumbnail,
           thumbSrc: mapped?.thumbnail || (snap ? snap.image || snap.imageUrl : undefined),
           clicks: counts[id] || 0,
           inExpected: test.tasks.some((t) => t.expectedPath?.includes(id))
@@ -230,19 +232,59 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
   }, [screens, screenId]);
   useEffect(() => setImgRatio(null), [screenId]);
 
-  const current = screens.find((s) => s.id === screenId);
+  const screenBase = screens.find((s) => s.id === screenId);
+
+  // Larguras de tela: o layout muda com a largura, então cada largura tem o seu print-base
+  const [widthKey, setWidthKey] = useState<string>('auto');
+  useEffect(() => setWidthKey('auto'), [screenId]);
+  const bucket = (w?: number) => (w ? String(Math.round(w / 40) * 40) : '');
+  const widthOptions = useMemo(() => {
+    const m: Record<string, { width: number; clicks: number; hasImage: boolean }> = {};
+    allPoints
+      .filter((p) => p.screen === screenId && p.docWidth)
+      .forEach((p) => {
+        const k = bucket(p.docWidth);
+        m[k] = m[k] || { width: Math.round(p.docWidth!), clicks: 0, hasImage: false };
+        m[k].clicks += 1;
+      });
+    (screenBase?.snaps || []).forEach((sn) => {
+      const k = bucket(sn.documentWidth || sn.viewportWidth);
+      if (!k) return;
+      m[k] = m[k] || { width: Math.round((sn.documentWidth || sn.viewportWidth)!), clicks: 0, hasImage: false };
+      m[k].hasImage = true;
+    });
+    return Object.entries(m)
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => b.clicks - a.clicks || Number(b.hasImage) - Number(a.hasImage));
+  }, [allPoints, screenId, screenBase]);
+  const activeWidth = widthKey === 'auto' ? widthOptions[0]?.key : widthKey;
+  const current = useMemo(() => {
+    if (!screenBase) return undefined;
+    if (!activeWidth || !screenBase.snaps.length) return screenBase;
+    const target = Number(activeWidth);
+    // print da mesma largura (participante > mapeamento); senão o mais próximo
+    const ranked = [...screenBase.snaps].sort((a, b) => {
+      const da = Math.abs((a.documentWidth || a.viewportWidth || 0) - target);
+      const db = Math.abs((b.documentWidth || b.viewportWidth || 0) - target);
+      return da - db || (a.sessionId === 'MAPEAMENTO' ? 1 : 0) - (b.sessionId === 'MAPEAMENTO' ? 1 : 0);
+    });
+    const snap = ranked[0];
+    return { ...screenBase, snap, imageSrc: snap.image || snap.imageUrl, lowRes: false };
+  }, [screenBase, activeWidth]);
+  const sameWidth = (p: ClickPoint) => !p.docWidth || !activeWidth || Math.abs(p.docWidth - Number(activeWidth)) / Number(activeWidth) <= 0.06;
 
   const filtered = useMemo(
     () =>
       allPoints.filter((p) => {
         if (p.screen !== screenId) return false;
+        if (!sameWidth(p)) return false;
         if (participant !== 'all' && participantBySession[p.sessionId]?.key !== participant) return false;
         if (taskId !== 'all' && p.taskId !== taskId) return false;
         if (clickType === 'valid' && p.interactive === false) return false;
         if (clickType === 'dead' && p.interactive !== false) return false;
         return true;
       }),
-    [allPoints, screenId, participant, taskId, clickType, participantBySession]
+    [allPoints, screenId, participant, taskId, clickType, participantBySession, activeWidth]
   );
 
   const projected = useMemo(
@@ -482,10 +524,27 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
             <div>
               <div className="text-sm font-bold text-slate-900">{current?.name}</div>
               <div className="text-[11px] text-slate-500">
-                {filtered.length} clique(s) {current?.snap ? `• print ${current.snap.sessionId === 'MAPEAMENTO' ? 'do mapeamento' : 'de participante'}` : current?.imageSrc ? '• print do mapeamento' : ''}
+                {filtered.length} clique(s){' '}
+                {current?.snap
+                  ? `• print ${current.snap.sessionId === 'MAPEAMENTO' ? 'do mapeamento' : 'de participante'}`
+                  : current?.lowRes
+                  ? '• só miniatura (baixa resolução) — tela sem captura completa'
+                  : ''}
                 {outOfFrame > 0 ? ` • ${outOfFrame} fora da área capturada` : ''}
               </div>
             </div>
+            {widthOptions.length > 1 && (
+              <label className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                Largura da tela
+                <select value={activeWidth} onChange={(e) => setWidthKey(e.target.value)} className="px-2 py-1 rounded-lg border border-slate-200 bg-slate-50">
+                  {widthOptions.map((w) => (
+                    <option key={w.key} value={w.key}>
+                      {w.width}px — {w.clicks} clique(s){w.hasImage ? '' : ' (sem print)'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="flex items-center gap-3 text-[11px] text-slate-600">
               <label className="flex items-center gap-1.5">
                 Raio
