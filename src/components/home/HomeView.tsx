@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { UsabilityTest } from '../../types';
 import { getShareableTestUrl } from '../../utils/figmaUtils';
-import { Search, Plus, Link2, Check, Users, ArrowRight, Trash2, ScanSearch, Send, BarChart3, CalendarDays, ListChecks, X } from 'lucide-react';
+import { Search, Plus, Link2, Check, Users, ArrowRight, Trash2, ScanSearch, Send, BarChart3, CalendarDays, ListChecks, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface HomeViewProps {
   tests: UsabilityTest[];
@@ -38,6 +38,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ tests, onCreate, onOpen, onD
   const [copied, setCopied] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<UsabilityTest | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
 
   const sorted = useMemo(
     () => [...tests].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
@@ -54,6 +56,30 @@ export const HomeView: React.FC<HomeViewProps> = ({ tests, onCreate, onOpen, onD
     if (!q) return true;
     return [t.name, t.id, t.productName, t.researchGoal].some((v) => (v || '').toLowerCase().includes(q));
   });
+
+  // Paginação: 10 testes por página; volta para a 1ª ao buscar/filtrar e não fica em página vazia após excluir
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  useEffect(() => setPage(1), [query, filter]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+  const current = Math.min(page, totalPages);
+  const pageItems = visible.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+  const goTo = (p: number) => {
+    setPage(Math.min(totalPages, Math.max(1, p)));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const pageNumbers = (() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const set = new Set([1, totalPages, current - 1, current, current + 1].filter((n) => n >= 1 && n <= totalPages));
+    const sortedNums = [...set].sort((a, b) => a - b);
+    const out: (number | '…')[] = [];
+    sortedNums.forEach((n, i) => {
+      if (i > 0 && n - sortedNums[i - 1] > 1) out.push('…');
+      out.push(n);
+    });
+    return out;
+  })();
 
   const copyLink = (e: React.MouseEvent, t: UsabilityTest) => {
     e.stopPropagation();
@@ -122,7 +148,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ tests, onCreate, onOpen, onD
             </button>
           )}
         </div>
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start overflow-x-auto">
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start overflow-x-auto max-w-full">
           {FILTERS.map((f) => (
             <button
               key={f.key}
@@ -148,7 +174,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ tests, onCreate, onOpen, onD
             </button>
           </div>
         )}
-        {visible.map((t) => {
+        {pageItems.map((t) => {
           const phase = PHASE[phaseOf(t)];
           const limit = t.participantLimit || 0;
           const done = t.totalParticipants || 0;
@@ -219,6 +245,50 @@ export const HomeView: React.FC<HomeViewProps> = ({ tests, onCreate, onOpen, onD
           );
         })}
       </div>
+
+      {visible.length > PAGE_SIZE && (
+        <nav className="flex flex-col sm:flex-row items-center justify-between gap-3" aria-label="Paginação dos testes">
+          <div className="text-xs text-slate-500">
+            Mostrando <b className="text-slate-700">{(current - 1) * PAGE_SIZE + 1}–{Math.min(current * PAGE_SIZE, visible.length)}</b> de{' '}
+            <b className="text-slate-700">{visible.length}</b> testes
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => goTo(current - 1)}
+              disabled={current === 1}
+              className="inline-flex items-center gap-1 px-3 h-9 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="w-4 h-4" /> <span className="hidden sm:inline">Anterior</span>
+            </button>
+            {pageNumbers.map((n, i) =>
+              n === '…' ? (
+                <span key={`e${i}`} className="w-9 text-center text-xs text-slate-400">…</span>
+              ) : (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => goTo(n)}
+                  aria-current={n === current ? 'page' : undefined}
+                  className={`w-9 h-9 rounded-lg text-xs font-semibold ${n === current ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  {n}
+                </button>
+              )
+            )}
+            <button
+              type="button"
+              onClick={() => goTo(current + 1)}
+              disabled={current === totalPages}
+              className="inline-flex items-center gap-1 px-3 h-9 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Próxima página"
+            >
+              <span className="hidden sm:inline">Próxima</span> <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </nav>
+      )}
 
       {/* Confirmação de exclusão (heurística: prevenção de erros) */}
       {confirmDelete && (

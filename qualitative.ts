@@ -272,6 +272,7 @@ const logAttempt = (a: { model: string; ms: number; ok: boolean; error?: string 
 
 // Pergunta ao Google quais modelos esta chave pode usar e ordena os "Flash" do mais novo para o mais antigo.
 let discoveredUntil = 0;
+let lastGoodModel = ''; // o último modelo que respondeu é tentado primeiro na próxima análise
 async function discoverModels(): Promise<string[]> {
   if (Date.now() < discoveredUntil) return aiStatus.discovered;
   try {
@@ -305,7 +306,7 @@ async function discoverModels(): Promise<string[]> {
 async function runGemini(prompt: string) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   const discovered = await discoverModels();
-  const models = [...new Set([process.env.GEMINI_MODEL, ...discovered.slice(0, 3), 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean) as string[])].slice(0, 5);
+  const models = [...new Set([process.env.GEMINI_MODEL, lastGoodModel, ...discovered.slice(0, 3), 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean) as string[])].slice(0, 5);
   const deadline = Date.now() + 85000;
   let lastErr: any;
   for (const model of models) {
@@ -331,6 +332,7 @@ async function runGemini(prompt: string) {
         );
         const json = parseJson(r.text || '');
         logAttempt({ model, ms: Date.now() - t0, ok: true });
+        lastGoodModel = model;
         console.log(`[IA] ${model} respondeu em ${Date.now() - t0}ms`);
         return { model, json };
       } catch (err: any) {
