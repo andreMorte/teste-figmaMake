@@ -1140,6 +1140,7 @@ app.post('/api/tests/:id/reset', (req, res) => {
 // ---------------------------------------------------------------------------
 const qualInFlight = new Map<string, Promise<QualResult | null>>();
 const qualTimers = new Map<string, NodeJS.Timeout>();
+const qualRetries = new Map<string, number>();
 
 function qualInputFor(testId: string) {
   const test = serverTestsStore.find((t) => t.id === testId);
@@ -1173,6 +1174,12 @@ function runQualitative(testId: string, force = false): Promise<QualResult | nul
     if (idx >= 0) serverAiAnalysesStore[idx] = result;
     else serverAiAnalysesStore.push(result);
     scheduleSave();
+    // IA indisponível (sobrecarga): tenta de novo sozinha mais tarde, até 3 vezes
+    if (result.aiError && aiEngine()) {
+      const n = (qualRetries.get(testId) || 0) + 1;
+      qualRetries.set(testId, n);
+      if (n <= 3) setTimeout(() => runQualitative(testId, true).catch(() => {}), n * 120000);
+    } else qualRetries.delete(testId);
     return result;
   })().finally(() => qualInFlight.delete(testId));
   qualInFlight.set(testId, job);

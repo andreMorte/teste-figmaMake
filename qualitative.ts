@@ -251,22 +251,43 @@ const parseJson = (text: string) => {
   return JSON.parse(t);
 };
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const withTimeout = <T,>(p: Promise<T>, ms: number, label: string) =>
+  Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label}: tempo esgotado (${Math.round(ms / 1000)}s)`)), ms))]);
+
+// Tenta vários modelos; em sobrecarga (503/429) espera um pouco e passa para o próximo.
 async function runGemini(prompt: string) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const models = [process.env.GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'].filter(Boolean) as string[];
+  const models = [process.env.GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'].filter(Boolean) as string[];
+  const deadline = Date.now() + 75000;
   let lastErr: any;
   for (const model of [...new Set(models)]) {
-    try {
-      const r = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: { responseMimeType: 'application/json', responseJsonSchema: SCHEMA, temperature: 0.3 }
-      });
-      return { model, json: parseJson(r.text || '') };
-    } catch (err: any) {
-      lastErr = err;
-      const msg = String(err?.message || err);
-      if (!/not found|404|unsupported|is not supported/i.test(msg)) break; // só tenta outro modelo se este não existir
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const left = deadline - Date.now();
+      if (left < 5000) throw lastErr || new Error('IA sem resposta no tempo limite');
+      try {
+        const r = await withTimeout(
+          ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: { responseMimeType: 'application/json', responseJsonSchema: SCHEMA, temperature: 0.3, httpOptions: { timeout: Math.min(40000, left) } } as any
+          }),
+          Math.min(42000, left),
+          model
+        );
+        return { model, json: parseJson(r.text || '') };
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || err);
+        console.warn(`[IA] ${model} tentativa ${attempt + 1}: ${msg.slice(0, 160)}`);
+        if (/not found|404|unsupported|is not supported/i.test(msg)) break; // modelo não existe: próximo
+        if (/503|429|UNAVAILABLE|RESOURCE_EXHAUSTED|overload|high demand|tempo esgotado|timeout|fetch failed|ECONN/i.test(msg)) {
+          if (attempt === 0) await sleep(2500);
+          continue; // tenta de novo e depois troca de modelo
+        }
+        if (/JSON|Unexpected token/i.test(msg)) continue; // resposta mal formada: tenta de novo
+        throw err; // chave inválida, permissão etc.
+      }
     }
   }
   throw lastErr;
@@ -344,7 +365,7 @@ export async function analyzeQualitative(test: any, items: QualItem[], participa
 // Análise local (sem IA): regras simples em português
 // ---------------------------------------------------------------------------
 const NEG = ['difícil', 'dificil', 'confus', 'não consegui', 'nao consegui', 'demor', 'trav', 'perdid', 'ruim', 'erro', 'complicad', 'não entendi', 'nao entendi', 'chato', 'lent', 'frustr', 'problema', 'dúvida', 'duvida', 'não achei', 'não encontrei', 'nao achei', 'nao encontrei', 'faltou', 'pouco claro', 'escondid', 'estranho', 'péssim', 'horrível', 'irritante', 'cansativ'];
-const POS = ['fácil', 'facil', 'simples', 'rápid', 'rapid', 'intuitiv', 'clar', 'gostei', 'ótim', 'otim', 'bom', 'boa', 'legal', 'prátic', 'pratic', 'bonit', 'tranquil', 'excelente', 'agradável', 'organizad', 'direto', 'fluid'];
+const POS = ['amei', 'adorei', 'top', 'perfeit', 'show', 'incrível', 'incrivel', 'curti', 'maravilh', 'fácil', 'facil', 'simples', 'rápid', 'rapid', 'intuitiv', 'clar', 'gostei', 'ótim', 'otim', 'bom', 'boa', 'legal', 'prátic', 'pratic', 'bonit', 'tranquil', 'excelente', 'agradável', 'organizad', 'direto', 'fluid'];
 const SUG = ['poderia', 'deveria', 'seria bom', 'seria legal', 'sugiro', 'sugestão', 'sugestao', 'gostaria', 'precisa ter', 'falta um', 'falta uma', 'se tivesse'];
 const HEDGE = ['acho', 'talvez', 'parece', 'meio', 'um pouco', 'não sei', 'nao sei', 'acredito'];
 const INTENS = ['muito', 'super', 'bem ', 'demais', 'extremamente', 'totalmente', 'nada'];
@@ -385,7 +406,7 @@ function localAnalysis(items: QualItem[], participants: QualParticipantContext[]
   const textItems = items.filter((i) => i.questionType !== 'likert_scale');
   return {
     summary: items.length
-      ? `${items.length} resposta(s) analisada(s) por regras locais: ${dores} dor(es), ${bons} ponto(s) positivo(s). Configure a IA para obter temas, leitura comportamental e recomendações.`
+      ? `${items.length} resposta(s) analisada(s) por regras locais: ${dores} dor(es), ${bons} ponto(s) positivo(s). Com a IA ativa, a análise traz temas, leitura comportamental e recomendações.`
       : 'Ainda não há respostas qualitativas neste teste.',
     items: cls,
     themes: [...byTheme.entries()].map(([k, v]) => ({

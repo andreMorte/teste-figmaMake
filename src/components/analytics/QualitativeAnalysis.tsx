@@ -347,7 +347,11 @@ export const QualitativeAnalysis: React.FC<Props> = ({ testId, testName, onBack,
           <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600" />
           <div>
             {data.aiError ? (
-              <>A IA não respondeu desta vez ({data.aiError}). Mostrando a análise local por regras; clique em <b>Reanalisar</b> para tentar de novo.</>
+              /503|429|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|tempo esgotado/i.test(data.aiError) ? (
+                <>O Gemini está sobrecarregado agora (problema temporário do Google). Enquanto isso, mostramos a análise local por regras. O sistema tenta de novo sozinho nos próximos minutos, ou clique em <b>Reanalisar</b>.</>
+              ) : (
+                <>A IA não respondeu desta vez ({data.aiError.slice(0, 160)}). Mostrando a análise local por regras; clique em <b>Reanalisar</b> para tentar de novo.</>
+              )
             ) : (
               <>
                 A IA ainda não está ligada no servidor, então esta é uma análise local por regras (sem temas nem leitura comportamental completa). Para ligar, adicione a variável{' '}
