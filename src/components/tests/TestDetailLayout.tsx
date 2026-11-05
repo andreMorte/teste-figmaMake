@@ -20,6 +20,7 @@ import {
 import { getShareableTestUrl } from '../../utils/figmaUtils';
 import { ClickZoningHeatmapView } from '../analytics/ClickZoningHeatmapView';
 import { JourneyVisualizer } from '../analytics/JourneyVisualizer';
+import { OverviewPanel } from '../analytics/OverviewPanel';
 import {
   Activity,
   Award,
@@ -163,7 +164,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Test Top Banner & Master Header */}
       <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="flex flex-col gap-5">
           <div className="space-y-2 flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold tracking-wide ${
@@ -325,206 +326,8 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
       {/* ========================================================================= */}
       {/* TAB 1: VISÃO GERAL & KPIS */}
       {/* ========================================================================= */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
-          {/* Essential Metrics Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-            {/* Taxa de sucesso */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Taxa de Sucesso</span>
-                <Award className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">
-                {test.averageSuccessRate}%
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Tarefas concluídas com êxito
-              </p>
-            </div>
-
-            {/* Taxa de conclusão */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Taxa de Conclusão</span>
-                <CheckCircle2 className="w-4 h-4 text-blue-600" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">
-                90.0%
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                18 de 20 sessões completas
-              </p>
-            </div>
-
-            {/* Tempo médio e mediano */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Tempo Médio / Mediana</span>
-                <Clock className="w-4 h-4 text-cyan-600" />
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl font-bold text-slate-900">02:47</span>
-                <span className="text-xs text-slate-400 font-mono">/ 02:35</span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Minutos por sessão completa
-              </p>
-            </div>
-
-            {/* SUS Score */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Score SUS Geral</span>
-                <Sparkles className="w-4 h-4 text-amber-500" />
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl font-bold text-slate-900">
-                  {test.averageSusScore}
-                </span>
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
-                  Bom
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Escala oficial (0 a 100)
-              </p>
-            </div>
-
-            {/* Cliques totais e erros */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Cliques Incorretos</span>
-                <MousePointer className="w-4 h-4 text-rose-500" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-rose-600">
-                34
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Cliques em elementos não interativos
-              </p>
-            </div>
-
-            {/* Retornos (Back rate) */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Taxa de Retorno</span>
-                <RotateCcw className="w-4 h-4 text-amber-500" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-amber-600">
-                38.0%
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Concentrado na etapa de Coberturas
-              </p>
-            </div>
-
-            {/* Taxa de abandono */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Taxa de Abandono</span>
-                <TrendingDown className="w-4 h-4 text-rose-500" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-rose-600">
-                10.0%
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                2 abandonos na Tarefa 2
-              </p>
-            </div>
-
-            {/* Desvio de caminho */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-                <span>Desvio de Caminho</span>
-                <Compass className="w-4 h-4 text-purple-600" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-purple-600">
-                39.0%
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Rotas alternativas vs expectedPath
-              </p>
-            </div>
-          </div>
-
-          {/* Perception vs Behavior Highlight Box */}
-          <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-50/70 via-white to-purple-50/70 border border-amber-200 shadow-xs space-y-3">
-            <div className="flex items-center gap-2 text-amber-800 text-xs font-bold uppercase tracking-wider">
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              <span>Análise de Discrepância: Percepção (SUS) vs Comportamento Real</span>
-            </div>
-            <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-              {susResult?.perceptionVsBehavior.discrepancyMessage}
-            </p>
-            <div className="flex items-center gap-4 text-xs font-medium text-slate-600 pt-1 flex-wrap">
-              <span>SUS: <strong className="text-amber-700">78.5 (Bom)</strong></span>
-              <span>•</span>
-              <span>Retorno: <strong className="text-rose-600">38%</strong></span>
-              <span>•</span>
-              <span>Desvio: <strong className="text-purple-700">39%</strong></span>
-              <span>•</span>
-              <span>Abandono: <strong className="text-rose-600">10% (2 usuários)</strong></span>
-            </div>
-          </div>
-
-          {/* Quick Task Summary Table */}
-          <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-                  Desempenho por Tarefa
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Taxas de sucesso, cliques e tempos cronometrados por objetivo.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab('tasks')}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-              >
-                Ver detalhes completos →
-              </button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
-                    <th className="pb-3">Tarefa</th>
-                    <th className="pb-3">Sucesso</th>
-                    <th className="pb-3">Tempo Médio</th>
-                    <th className="pb-3">Cliques</th>
-                    <th className="pb-3">Erros</th>
-                    <th className="pb-3">Retornos</th>
-                    <th className="pb-3">Caminho Ideal</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {taskMetrics.map((tm) => (
-                    <tr key={tm.taskId} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3.5 font-medium text-slate-900">
-                        <span className="font-mono text-blue-600 font-bold mr-1.5">{tm.taskId}:</span>
-                        {tm.title}
-                      </td>
-                      <td className="py-3.5 text-emerald-600 font-bold">
-                        {tm.successRate}%
-                      </td>
-                      <td className="py-3.5 font-mono text-slate-700">
-                        {tm.averageTimeSeconds}s
-                      </td>
-                      <td className="py-3.5 font-mono text-slate-700">{tm.totalClicks}</td>
-                      <td className="py-3.5 text-rose-600 font-bold">{tm.errorClicks}</td>
-                      <td className="py-3.5 text-amber-600 font-bold">{tm.returnsCount} ({Math.round((tm.returnsCount / 20) * 100)}%)</td>
-                      <td className="py-3.5 text-blue-600 font-medium">{tm.idealPathRate}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+      {activeTab === 'overview' && test && (
+        <OverviewPanel test={test} sessions={sessions} isDemo={isDemo} onOpenTab={(tab) => setActiveTab(tab)} />
       )}
 
       {/* ========================================================================= */}

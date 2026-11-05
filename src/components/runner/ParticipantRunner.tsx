@@ -367,7 +367,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
             metadata: {
               text: data.text,
               selector: data.selector,
-              tagName: data.tagName
+              tagName: data.tagName,
+              interactive: data.interactive
             }
           });
         }

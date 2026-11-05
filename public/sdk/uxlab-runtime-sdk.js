@@ -422,6 +422,15 @@
   // ---------------------------------------------------------------------------
   // Eventos
   // ---------------------------------------------------------------------------
+  function isPointer(el) {
+    for (var i = 0; el && el !== document.body && i < 6; i++, el = el.parentElement) {
+      try {
+        if (window.getComputedStyle(el).cursor === 'pointer') return true;
+      } catch (err) {}
+    }
+    return false;
+  }
+
   document.addEventListener(
     'click',
     function (e) {
@@ -437,6 +446,8 @@
         normalizedY: e.clientY / window.innerHeight,
         element: label,
         tagName: target && target.tagName,
+        // clicável de verdade: elemento interativo ou com cursor de mão (divs com onClick no Figma Make)
+        interactive: !!(e.target && e.target.closest && e.target.closest(INTERACTIVE)) || isPointer(e.target),
         screenId: currentScene ? currentScene.screenId : undefined,
         screenName: currentScene ? currentScene.screenName : undefined,
         timestamp: new Date().toISOString()

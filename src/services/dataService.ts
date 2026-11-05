@@ -565,7 +565,7 @@ export async function getTestResults(testId: string): Promise<{
     const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/results`);
     if (res.ok) {
       const real = await res.json();
-      if (real && Array.isArray(real.sessions) && real.sessions.length > 0) {
+      if (real && real.test && Array.isArray(real.sessions)) {
         return {
           test: real.test,
           taskMetrics: real.taskMetrics || [],
@@ -583,7 +583,7 @@ export async function getTestResults(testId: string): Promise<{
     console.warn('[DataService] Falha ao buscar resultados reais; usando dados de demonstração', err);
   }
 
-  // 2. Sem sessões reais ainda: mantém os dados de demonstração originais
+  // 2. Servidor indisponível: usa os dados de demonstração originais
   const test = await getTestById(testId);
   const sessions = sessionsCache.filter((s) => s.testId === testId);
   const allSnapshots = getTestSnapshots(testId);
