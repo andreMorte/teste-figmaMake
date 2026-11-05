@@ -61,13 +61,15 @@ interface TestDetailLayoutProps {
   onNavigate: (view: string, testId?: string) => void;
   onOpenRunner: (testId: string, customPrototypeUrl?: string) => void;
   onOpenValidationEngine: (prototypeUrl: string, testId: string, trackingId: string) => void;
+  onOpenParticipant?: (participantKey: string) => void;
 }
 
 export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
   testId,
   onNavigate,
   onOpenRunner,
-  onOpenValidationEngine
+  onOpenValidationEngine,
+  onOpenParticipant
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'journey' | 'heatmaps' | 'sus' | 'participants' | 'insights'>('overview');
   const [loading, setLoading] = useState(true);
@@ -232,7 +234,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
         </div>
 
         {/* Global Navigation Tabs inside Test */}
-        <div className="flex items-center gap-1 overflow-x-auto pt-3 border-t border-slate-100">
+        <div className="flex flex-wrap items-center gap-1 pt-3 border-t border-slate-100">
           {[
             { key: 'overview', label: 'Visão Geral & KPIs', icon: Activity },
             { key: 'tasks', label: 'Tarefas Cadastradas', icon: Layers },
@@ -267,7 +269,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
       {/* TAB 1: VISÃO GERAL & KPIS */}
       {/* ========================================================================= */}
       {activeTab === 'overview' && test && (
-        <OverviewPanel test={test} sessions={sessions} isDemo={isDemo} onOpenTab={(tab) => setActiveTab(tab)} />
+        <OverviewPanel test={test} sessions={sessions} isDemo={isDemo} onOpenTab={(tab) => setActiveTab(tab)} onOpenParticipant={onOpenParticipant} />
       )}
 
       {/* ========================================================================= */}
@@ -642,7 +644,7 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
                 {sessions.map((sess) => (
                   <tr
                     key={sess.sessionId}
-                    onClick={() => setSelectedSession(sess)}
+                    onClick={() => (onOpenParticipant ? onOpenParticipant(sess.participantId || sess.sessionId) : setSelectedSession(sess))}
                     className="hover:bg-slate-50/70 cursor-pointer transition-colors"
                   >
                     <td className="py-3.5 font-medium text-slate-900">

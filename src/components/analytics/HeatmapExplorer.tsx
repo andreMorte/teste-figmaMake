@@ -43,6 +43,9 @@ interface HeatmapExplorerProps {
   points: ClickPoint[];
   screenHeatmaps?: Record<string, any> | any[];
   isDemo?: boolean;
+  /** Página do participante: fixa o filtro nesta pessoa e prefere os prints da sessão dela */
+  fixedParticipantKey?: string;
+  preferSessionIds?: string[];
 }
 
 type Layer = 'heat' | 'clicks' | 'zones';
@@ -145,7 +148,7 @@ const HeatCanvas: React.FC<{ pts: { x: number; y: number }[]; radius: number; op
   return <canvas ref={ref} className="absolute inset-0 w-full h-full pointer-events-none" />;
 };
 
-export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions, points, screenHeatmaps, isDemo }) => {
+export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions, points, screenHeatmaps, isDemo, fixedParticipantKey, preferSessionIds }) => {
   const realSessions = useMemo(() => (isDemo ? [] : sessions.filter((s) => s.testId === test.id)), [isDemo, sessions, test.id]);
   const allPoints = isDemo ? [] : points;
   const hmMap: Record<string, any> = useMemo(() => {
@@ -191,7 +194,7 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
     const add = (id?: string) => id && !order.includes(id) && order.push(id);
     const mappedIds = new Set((test.screenMap || []).map((m) => m.screenId));
     // 1) caminho esperado (só cenários mapeados de verdade)
-    test.tasks.forEach((t) => (t.expectedPath || []).filter((id) => mappedIds.has(id)).forEach(add));
+    if (!fixedParticipantKey) test.tasks.forEach((t) => (t.expectedPath || []).filter((id) => mappedIds.has(id)).forEach(add));
     // 2) ordem real de navegação dos participantes
     realSessions
       .slice()
@@ -204,11 +207,16 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
           .forEach((e) => add(e.currentScreen))
       );
     // 3) cenários mapeados não visitados, e qualquer tela com print ou clique
-    (test.screenMap || []).forEach((m) => add(m.screenId));
     const counts: Record<string, number> = {};
     allPoints.forEach((p) => (counts[p.screen] = (counts[p.screen] || 0) + 1));
-    Object.keys(counts).forEach(add);
-    Object.keys(hmMap).forEach(add);
+    if (!fixedParticipantKey) {
+      (test.screenMap || []).forEach((m) => add(m.screenId));
+      Object.keys(counts).forEach(add);
+      Object.keys(hmMap).forEach(add);
+    } else {
+      // página da pessoa: só as telas que ela viu ou clicou
+      allPoints.filter((p) => participantBySession[p.sessionId]?.key === fixedParticipantKey).forEach((p) => add(p.screen));
+    }
     return order
       .filter((id) => !/^(figma-frame|task-|SCREEN-001|inicio$|start$|survey$|sus$|end$|fim$)/.test(id))
       .map((id) => {
@@ -227,10 +235,10 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
           inExpected: true
         };
       });
-  }, [test, allPoints, hmMap, nameOf, realSessions]);
+  }, [test, allPoints, hmMap, nameOf, realSessions, fixedParticipantKey, participantBySession]);
 
   const [screenId, setScreenId] = useState<string>('');
-  const [participant, setParticipant] = useState('all');
+  const [participant, setParticipant] = useState(fixedParticipantKey || 'all');
   const [taskId, setTaskId] = useState('all');
   const [clickType, setClickType] = useState<'all' | 'valid' | 'dead'>('all');
   const [layers, setLayers] = useState<Record<Layer, boolean>>({ heat: true, clicks: false, zones: false });
@@ -282,7 +290,8 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
     const ranked = [...screenBase.snaps].sort((a, b) => {
       const da = Math.abs((a.documentWidth || a.viewportWidth || 0) - target);
       const db = Math.abs((b.documentWidth || b.viewportWidth || 0) - target);
-      return da - db || (a.sessionId === 'MAPEAMENTO' ? 1 : 0) - (b.sessionId === 'MAPEAMENTO' ? 1 : 0);
+      const own = (x: SnapshotMeta) => (preferSessionIds && x.sessionId && preferSessionIds.includes(x.sessionId) ? 0 : 1);
+      return own(a) - own(b) || da - db || (a.sessionId === 'MAPEAMENTO' ? 1 : 0) - (b.sessionId === 'MAPEAMENTO' ? 1 : 0);
     });
     const snap = ranked[0];
     return { ...screenBase, snap, imageSrc: snap.image || snap.imageUrl, lowRes: false };
@@ -434,7 +443,7 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
     <div className="space-y-5">
       {/* Filtros */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-wrap items-end gap-3 text-xs">
-        <div>
+        <div className={fixedParticipantKey ? 'hidden' : ''}>
           <div className="text-[11px] font-semibold text-slate-500 mb-1">Participante</div>
           <select value={participant} onChange={(e) => setParticipant(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 min-w-[180px]">
             <option value="all">Todos ({participants.length})</option>

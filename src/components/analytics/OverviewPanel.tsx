@@ -22,6 +22,7 @@ interface OverviewPanelProps {
   sessions: ParticipantSession[];
   isDemo?: boolean;
   onOpenTab: (tab: 'tasks' | 'journey' | 'sus' | 'participants') => void;
+  onOpenParticipant?: (key: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,8 +60,13 @@ const NON_INTERACTIVE_TAGS = ['DIV', 'SPAN', 'P', 'IMG', 'SECTION', 'MAIN', 'HEA
 
 const ts = (e: TrackedEvent) => new Date(e.timestamp).getTime();
 
-function hasLoop(path: string[]) {
-  for (let i = 0; i < path.length - 2; i++) if (path[i] === path[i + 2] && path[i] !== path[i + 1]) return true;
+/** Ida e volta (A → B → A) que não faz parte do caminho esperado (ex.: abrir e fechar um modal previsto). */
+function hasLoop(path: string[], expected: string[] = []) {
+  const expectedTriples = new Set<string>();
+  for (let i = 0; i < expected.length - 2; i++) expectedTriples.add(`${expected[i]}>${expected[i + 1]}>${expected[i + 2]}`);
+  for (let i = 0; i < path.length - 2; i++) {
+    if (path[i] === path[i + 2] && path[i] !== path[i + 1] && !expectedTriples.has(`${path[i]}>${path[i + 1]}>${path[i + 2]}`)) return true;
+  }
   return false;
 }
 
@@ -100,7 +106,7 @@ function analyzeTask(session: ParticipantSession, task: TestTask, mappedIds: Set
     clicks: evs.filter((e) => e.eventType === 'CLICK').length,
     deadClicks,
     difficulties: evs.filter((e) => e.eventType === 'TASK_ERROR').length,
-    hadReturn: hasLoop(path) || evs.some((e) => e.eventType === 'BACK' || e.eventType === 'RETURN'),
+    hadReturn: hasLoop(path, hasExpected ? expected : []) || evs.some((e) => e.eventType === 'BACK' || e.eventType === 'RETURN'),
     deviated: hasExpected && path.some((s) => !expected.includes(s)),
     idealPath: hasExpected && path.join('>') === expected.join('>'),
     hasExpected
@@ -228,7 +234,7 @@ const OutcomeBadge: React.FC<{ outcome: TaskOutcome }> = ({ outcome }) => {
   return <span className="text-slate-400">Não iniciou</span>;
 };
 
-export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, isDemo, onOpenTab }) => {
+export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, isDemo, onOpenTab, onOpenParticipant }) => {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const selectParticipant = (key: string | null) => {
@@ -492,7 +498,8 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, is
                     return (
                       <tr
                         key={r.key}
-                        onClick={() => selectParticipant(isSel ? null : r.key)}
+                        onClick={() => (onOpenParticipant ? onOpenParticipant(r.key) : selectParticipant(isSel ? null : r.key))}
+                        title="Abrir a página desta pessoa"
                         className={`cursor-pointer transition-colors ${isSel ? 'bg-blue-50' : 'hover:bg-slate-50/70'}`}
                       >
                         <td className="py-3">

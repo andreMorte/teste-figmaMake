@@ -3,11 +3,12 @@ import { CreateTestWizard } from './components/tests/CreateTestWizard';
 import { TestDetailLayout } from './components/tests/TestDetailLayout';
 import { ParticipantRunner } from './components/runner/ParticipantRunner';
 import { HomeView } from './components/home/HomeView';
+import { ParticipantDetail } from './components/participants/ParticipantDetail';
 import { UsabilityTest } from './types';
 import { getTests, deleteTest } from './services/dataService';
 import { FlaskConical, Plus, ChevronRight } from 'lucide-react';
 
-type View = 'home' | 'create-test' | 'test-detail' | 'runner';
+type View = 'home' | 'create-test' | 'test-detail' | 'participant' | 'runner';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
@@ -17,6 +18,8 @@ export default function App() {
   const [runnerPrototypeUrl, setRunnerPrototypeUrl] = useState<string>('');
   const [serverOnline, setServerOnline] = useState<boolean>(true);
   const [loaded, setLoaded] = useState(false);
+  const [participantKey, setParticipantKey] = useState<string>('');
+  const [participantName, setParticipantName] = useState<string>('');
 
   // Carrega os testes e detecta link de participante (/run/ID ou ?test=ID)
   useEffect(() => {
@@ -62,6 +65,12 @@ export default function App() {
     setCurrentView('test-detail');
   };
 
+  const openParticipant = (key: string) => {
+    setParticipantKey(key);
+    setCurrentView('participant');
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
+  };
+
   // Tela do participante: só o protótipo
   if (currentView === 'runner') {
     return (
@@ -82,7 +91,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
       {/* Barra superior mínima: marca, onde estou, ação principal */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-3">
           <button type="button" onClick={goHome} className="flex items-center gap-2 shrink-0" title="Ir para os testes">
             <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center">
               <FlaskConical className="w-4 h-4" />
@@ -102,10 +111,22 @@ export default function App() {
                 <span className="text-slate-900 font-medium">Novo teste</span>
               </>
             )}
-            {currentView === 'test-detail' && (
+            {(currentView === 'test-detail' || currentView === 'participant') && (
               <>
                 <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
-                <span className="text-slate-900 font-medium truncate">{selectedTest?.name || selectedTestId}</span>
+                {currentView === 'participant' ? (
+                  <button type="button" onClick={() => setCurrentView('test-detail')} className="hover:text-slate-900 truncate">
+                    {selectedTest?.name || selectedTestId}
+                  </button>
+                ) : (
+                  <span className="text-slate-900 font-medium truncate">{selectedTest?.name || selectedTestId}</span>
+                )}
+              </>
+            )}
+            {currentView === 'participant' && (
+              <>
+                <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                <span className="text-slate-900 font-medium truncate">{participantName || 'Participante'}</span>
               </>
             )}
           </nav>
@@ -125,7 +146,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
         {currentView === 'home' &&
           (loaded ? (
             <HomeView
@@ -171,6 +192,17 @@ export default function App() {
               setCurrentView('runner');
             }}
             onOpenValidationEngine={() => {}}
+            onOpenParticipant={openParticipant}
+          />
+        )}
+
+        {currentView === 'participant' && selectedTestId && participantKey && (
+          <ParticipantDetail
+            testId={selectedTestId}
+            participantKey={participantKey}
+            onBack={() => setCurrentView('test-detail')}
+            onOpenParticipant={openParticipant}
+            onName={setParticipantName}
           />
         )}
       </main>

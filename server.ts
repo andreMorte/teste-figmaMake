@@ -1071,7 +1071,8 @@ app.get('/api/tests/:id/results', (req, res) => {
     screenHeatmaps,
     sessions,
     participants,
-    snapshots: lightSnapshots
+    snapshots: lightSnapshots,
+    susResponses
   });
 });
 
