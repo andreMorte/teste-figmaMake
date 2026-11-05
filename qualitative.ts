@@ -259,7 +259,7 @@ const withTimeout = <T,>(p: Promise<T>, ms: number, label: string) =>
 async function runGemini(prompt: string) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   const models = [process.env.GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'].filter(Boolean) as string[];
-  const deadline = Date.now() + 75000;
+  const deadline = Date.now() + 85000;
   let lastErr: any;
   for (const model of [...new Set(models)]) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -270,9 +270,17 @@ async function runGemini(prompt: string) {
           ai.models.generateContent({
             model,
             contents: prompt,
-            config: { responseMimeType: 'application/json', responseJsonSchema: SCHEMA, temperature: 0.3, httpOptions: { timeout: Math.min(40000, left) } } as any
+            config: {
+              responseMimeType: 'application/json',
+              responseJsonSchema: SCHEMA,
+              temperature: 0.3,
+              maxOutputTokens: 8192,
+              // sem etapa de "pensamento": responde bem mais rápido (só nos modelos 2.5 Flash, que aceitam 0)
+              ...(/^gemini-2\.5-flash(-lite)?$/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+              httpOptions: { timeout: Math.min(60000, left) }
+            } as any
           }),
-          Math.min(42000, left),
+          Math.min(62000, left),
           model
         );
         return { model, json: parseJson(r.text || '') };
@@ -281,7 +289,7 @@ async function runGemini(prompt: string) {
         const msg = String(err?.message || err);
         console.warn(`[IA] ${model} tentativa ${attempt + 1}: ${msg.slice(0, 160)}`);
         if (/not found|404|unsupported|is not supported/i.test(msg)) break; // modelo não existe: próximo
-        if (/503|429|UNAVAILABLE|RESOURCE_EXHAUSTED|overload|high demand|tempo esgotado|timeout|fetch failed|ECONN/i.test(msg)) {
+        if (/503|504|429|UNAVAILABLE|DEADLINE|RESOURCE_EXHAUSTED|overload|high demand|tempo esgotado|timeout|fetch failed|ECONN|aborted/i.test(msg)) {
           if (attempt === 0) await sleep(2500);
           continue; // tenta de novo e depois troca de modelo
         }
