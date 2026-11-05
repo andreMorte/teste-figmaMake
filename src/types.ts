@@ -157,6 +157,7 @@ export interface UsabilityTest {
   prototypeUrl: string;
   trackingId: string;
   tasks: TestTask[];
+  participantLimit?: number; // quantidade de clientes/participantes previstos (fecha o link ao atingir)
   screenMap?: MappedScreen[]; // catálogo de cenários mapeados do protótipo
   customQuestions?: CustomQuestion[];
   metricConfig: MetricConfig;
@@ -234,6 +235,7 @@ export interface TrackedEvent {
 export interface ParticipantSession {
   sessionId: string;
   participantId?: string;
+  participantNumber?: number; // ordem de entrada do cliente no teste (1, 2, 3...)
   testId: string;
   participantName: string;
   participantType: 'human' | 'synthetic';

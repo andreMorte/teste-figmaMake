@@ -10,6 +10,7 @@ import {
   trackEvent,
   completeTask,
   completeSession,
+  getTestSlots,
   saveSusResponse,
   updateTestPrototypeUrl
 } from '../../services/dataService';
@@ -100,6 +101,9 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const [taskDoneModal, setTaskDoneModal] = useState<null | { kind: 'next' | 'final'; finishedIdx: number }>(null);
   const [redirectCountdown, setRedirectCountdown] = useState(6);
   const completingTaskRef = useRef(false);
+  // Vagas do teste (ex.: participante 3 de 10)
+  const [slots, setSlots] = useState<{ limit: number; used: number; nextNumber: number; full: boolean } | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
 
   // Lifecycle & Capture state
   const [lifecycle, setLifecycle] = useState<RuntimeLifecycle>('LOADING_TEST');
@@ -382,6 +386,16 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     return () => window.removeEventListener('message', handleMessage);
   }, [test, session, currentTaskIndex, prototypeScreen, detectedScreenId, participantName, testId, journeyStarted, taskDoneModal]);
 
+  // Carrega as vagas do teste para o modal de entrada
+  useEffect(() => {
+    if (!test?.id || journeyStarted) return;
+    let alive = true;
+    getTestSlots(test.id).then((s) => alive && s && setSlots(s));
+    return () => {
+      alive = false;
+    };
+  }, [test?.id, journeyStarted]);
+
   // Contagem regressiva do modal "Jornada finalizada" -> perguntas
   useEffect(() => {
     if (taskDoneModal?.kind !== 'final') return;
@@ -614,8 +628,19 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     const name = participantName.trim();
     if (!name) return;
     setStartingJourney(true);
+    setStartError(null);
     try {
-      const sess = await createSession(test.id, name, 'human');
+      let sess;
+      try {
+        sess = await createSession(test.id, name, 'human');
+      } catch (err: any) {
+        if (err?.code === 'TEST_FULL') {
+          setStartError(err.message);
+          setSlots((prev) => (prev ? { ...prev, full: true } : prev));
+          return;
+        }
+        throw err;
+      }
       setSession(sess);
       setPipelineSteps((prev) =>
         prev.map((s) => (s.step === 6 ? { ...s, status: 'success', detail: `${sess.sessionId} (${sess.participantName})` } : s))
@@ -1292,6 +1317,27 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                     <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">2</span>Navegue no protótipo como faria normalmente. Quando chegar ao fim, o sistema avisa sozinho.</li>
                     <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">3</span>No final, você responde algumas perguntas rápidas.</li>
                   </ol>
+                  {slots && slots.limit > 0 && (
+                    <div className={`p-3 rounded-xl border ${slots.full ? 'bg-rose-50 border-rose-200' : 'bg-blue-50 border-blue-100'}`}>
+                      {slots.full ? (
+                        <div className="text-xs text-rose-800 leading-relaxed">
+                          <strong>Vagas encerradas.</strong> Este teste já recebeu os {slots.limit} participantes previstos. Se você já
+                          participou e precisa continuar, informe exatamente o mesmo nome usado antes.
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-xs font-bold text-blue-800">Você será o participante {slots.nextNumber} de {slots.limit}</span>
+                            <span className="text-[11px] text-blue-700">{slots.limit - slots.used} vaga(s)</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-white overflow-hidden mt-2">
+                            <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.min(100, (slots.used / slots.limit) * 100)}%` }} />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {startError && <div className="text-xs text-rose-700">{startError}</div>}
                   <label className="block">
                     <span className="block text-xs font-semibold text-slate-700 mb-1.5">Seu nome *</span>
                     <input

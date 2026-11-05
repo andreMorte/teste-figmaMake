@@ -299,7 +299,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="flex items-center gap-3 text-xs text-slate-600 flex-wrap pt-0.5">
                   <span className="flex items-center gap-1">
                     <Users className="w-3.5 h-3.5 text-slate-600" />
-                    {test.totalParticipants} participantes
+                    {test.totalParticipants}{test.participantLimit ? ` / ${test.participantLimit}` : ''} participantes
                   </span>
                   <span>•</span>
                   <span>{test.tasks.length} tarefas</span>

@@ -272,21 +272,47 @@ export async function createTask(testId: string, task: Omit<TestTask, 'id' | 'or
   return newTask;
 }
 
+// Vagas de participantes do teste
+export async function getTestSlots(testId: string): Promise<{ limit: number; used: number; nextNumber: number; full: boolean } | null> {
+  try {
+    const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/slots`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 // 3. Participant Sessions & Event Tracking Engine
 export async function createSession(testId: string, participantName: string, participantType: 'human' | 'synthetic' = 'human'): Promise<ParticipantSession> {
   let sessionId = `SESS-${Date.now().toString(36).toUpperCase()}`;
   const test = await getTestById(testId);
 
   // Registra a sessão no servidor para que o painel do pesquisador receba os dados reais
-  const serverRes = await postJson<{ session: ParticipantSession & { participantId: string } }>('/api/sessions/start', {
-    testId,
-    participantName,
-    replaceSessionId: provisionalSessionByTest[testId]
-  });
+  let serverRes: { session: ParticipantSession & { participantId: string } } | null = null;
+  try {
+    const res = await fetch('/api/sessions/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ testId, participantName, replaceSessionId: provisionalSessionByTest[testId] })
+    });
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(body.message || 'Este teste já atingiu o número de participantes.');
+      (err as any).code = 'TEST_FULL';
+      throw err;
+    }
+    if (res.ok) serverRes = await res.json();
+  } catch (err: any) {
+    if (err?.code === 'TEST_FULL') throw err;
+    console.warn('[DataService] Falha ao registrar sessão no servidor', err);
+  }
   let serverParticipantId: string | undefined;
+  let serverParticipantNumber: number | undefined;
   if (serverRes?.session?.sessionId) {
     sessionId = serverRes.session.sessionId;
     serverParticipantId = serverRes.session.participantId;
+    serverParticipantNumber = serverRes.session.participantNumber;
     if (provisionalSessionByTest[testId]) {
       sessionsCache = sessionsCache.filter((s) => s.sessionId !== provisionalSessionByTest[testId] || s.events.length > 1);
     }
@@ -298,6 +324,7 @@ export async function createSession(testId: string, participantName: string, par
   const newSession: ParticipantSession = {
     sessionId,
     participantId: serverParticipantId,
+    participantNumber: serverParticipantNumber,
     testId,
     participantName: participantName || `Participante #${sessionsCache.filter((s) => s.testId === testId).length + 1}`,
     participantType,

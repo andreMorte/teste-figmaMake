@@ -415,6 +415,12 @@ function updateTestCounters(testId: string) {
     test.averageSuccessRate = 0;
   }
 
+  // Todas as vagas usadas e nenhuma sessão em andamento -> teste finalizado
+  const limit = Number(test.participantLimit) || 0;
+  if (limit > 0 && testParticipants.length >= limit && testSessions.every((s) => s.status !== 'Em andamento')) {
+    test.status = 'Finalizado';
+  }
+
   if (susList.length > 0) {
     const sumSus = susList.reduce((acc, s) => acc + s.computedScore, 0);
     test.averageSusScore = Math.round((sumSus / susList.length) * 10) / 10;
@@ -538,6 +544,7 @@ app.post('/api/sessions/start', (req, res) => {
 
   const cleanName = (participantName || '').trim() || 'Participante';
   const now = new Date().toISOString();
+  const testForLimit = serverTestsStore.find((t) => t.id === testId);
 
   // Deduplicate Participant: Find existing by participantId OR by matching name for this test
   let participant = serverParticipantsStore.find(
@@ -547,10 +554,22 @@ app.post('/api/sessions/start', (req, res) => {
   );
 
   if (!participant) {
-    const pNumber = serverParticipantsStore.filter((p) => p.testId === testId).length + 1;
+    const testParticipants = serverParticipantsStore.filter((p) => p.testId === testId);
+    // Limite de clientes do teste: novos nomes são recusados quando todas as vagas foram usadas
+    const limit = Number(testForLimit?.participantLimit) || 0;
+    if (limit > 0 && testParticipants.length >= limit) {
+      return res.status(409).json({
+        error: 'TEST_FULL',
+        message: `Este teste já recebeu os ${limit} participantes previstos.`,
+        limit,
+        used: testParticipants.length
+      });
+    }
+    const pNumber = testParticipants.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0) + 1;
     const newPId = participantId?.trim() || `PARTICIPANT-${pNumber.toString().padStart(3, '0')}`;
     participant = {
       participantId: newPId,
+      participantNumber: pNumber,
       participantName: cleanName,
       testId,
       firstAccess: now,
@@ -582,6 +601,7 @@ app.post('/api/sessions/start', (req, res) => {
     participantId: participant.participantId,
     testId,
     participantName: participant.participantName,
+    participantNumber: participant.participantNumber,
     participantType: 'human',
     status: 'Em andamento',
     startTime: now,
@@ -616,6 +636,24 @@ app.post('/api/sessions/start', (req, res) => {
 
   updateTestCounters(testId);
   return res.json({ session, participant });
+});
+
+// Vagas do teste (quantos clientes já entraram e qual o próximo número)
+app.get('/api/tests/:id/slots', (req, res) => {
+  const test = serverTestsStore.find((t) => t.id === req.params.id);
+  if (!test) return res.status(404).json({ error: 'Test not found' });
+  const participants = serverParticipantsStore.filter((p) => p.testId === test.id);
+  const limit = Number(test.participantLimit) || 0;
+  const used = participants.length;
+  return res.json({
+    limit,
+    used,
+    nextNumber: participants.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0) + 1,
+    full: limit > 0 && used >= limit,
+    participants: participants
+      .map((p) => ({ number: p.participantNumber, name: p.participantName, status: p.status }))
+      .sort((a, b) => (a.number || 0) - (b.number || 0))
+  });
 });
 
 // 2. Track Event in Real-Time

@@ -908,7 +908,15 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
                     className="hover:bg-slate-50/70 cursor-pointer transition-colors"
                   >
                     <td className="py-3.5 font-medium text-slate-900">
-                      <div>{sess.participantName}</div>
+                      <div className="flex items-center gap-2">
+                        {sess.participantNumber ? (
+                          <span className="px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold shrink-0">
+                            #{String(sess.participantNumber).padStart(2, '0')}
+                            {test?.participantLimit ? `/${test.participantLimit}` : ''}
+                          </span>
+                        ) : null}
+                        <span>{sess.participantName}</span>
+                      </div>
                       <span className="text-[10px] text-slate-400 font-mono">{sess.sessionId}</span>
                     </td>
                     <td className="py-3.5">

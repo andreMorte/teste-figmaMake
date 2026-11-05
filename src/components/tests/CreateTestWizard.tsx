@@ -62,6 +62,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   const [researchGoal, setResearchGoal] = useState('Identificar fricções na navegação, taxa de sucesso nas tarefas e clareza das telas.');
   const [productName, setProductName] = useState('Plataforma Web / Mobile');
   const [researcherName, setResearcherName] = useState('Staff UX Researcher');
+  const [participantLimit, setParticipantLimit] = useState<number>(10);
   const [category, setCategory] = useState<'SaaS / B2B' | 'E-commerce' | 'Mobile App / Fintech' | 'Healthtech' | 'Geral / Customizado'>('Geral / Customizado');
 
   // STEP 2 STATE: Tasks (Genéricas e abertas)
@@ -411,6 +412,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       researchGoal,
       productName,
       researcherName,
+      participantLimit,
       category,
       status: 'Publicado',
       prototypeUrl: prototypeUrl.trim(),
@@ -664,6 +666,23 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   placeholder="Ex: Staff UX Researcher"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
                 />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1.5">Quantidade de participantes (clientes) *</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={participantLimit}
+                    onChange={(e) => setParticipantLimit(Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 1)))}
+                    className="w-28 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
+                  />
+                  <span className="text-[11px] text-slate-500 leading-snug">
+                    Cada pessoa que abrir o link informa o nome e recebe um número (1 de {participantLimit}, 2 de {participantLimit}...). Ao
+                    completar {participantLimit}, o link fecha para novos participantes.
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -1339,6 +1358,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   <div><strong className="text-slate-800">Tarefas:</strong> {tasks.length} cadastradas</div>
                   <div><strong className="text-slate-800">SUS Ativado:</strong> {metrics.sus ? 'Sim (10 perguntas)' : 'Não'}</div>
                   <div><strong className="text-slate-800">Pesquisador:</strong> {researcherName}</div>
+                  <div><strong className="text-slate-800">Participantes previstos:</strong> {participantLimit} clientes</div>
                   <div><strong className="text-slate-800">Caminhos Esperados:</strong> {tasks.map((t) => t.expectedPath.length).join(' + ')} etapas</div>
                 </div>
               </div>
