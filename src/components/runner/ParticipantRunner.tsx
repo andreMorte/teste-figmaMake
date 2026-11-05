@@ -113,6 +113,10 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   // Modal exibido quando o participante chega ao último cenário mapeado da tarefa
   const [taskDoneModal, setTaskDoneModal] = useState<null | { kind: 'next' | 'final'; finishedIdx: number }>(null);
   const [redirectCountdown, setRedirectCountdown] = useState(6);
+  // Cartão flutuante da tarefa (aberto ao começar cada tarefa; o participante pode minimizar ou trocar de lado)
+  const [taskCardOpen, setTaskCardOpen] = useState(true);
+  const [taskCardSide, setTaskCardSide] = useState<'left' | 'right'>('left');
+
   const completingTaskRef = useRef(false);
   // Vagas do teste (ex.: participante 3 de 10)
   const [slots, setSlots] = useState<{ limit: number; used: number; nextNumber: number; full: boolean } | null>(null);
@@ -418,6 +422,11 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       alive = false;
     };
   }, [test?.id, journeyStarted]);
+
+  // Abre o cartão da tarefa sempre que uma nova tarefa começa
+  useEffect(() => {
+    setTaskCardOpen(true);
+  }, [currentTaskIndex, journeyStarted]);
 
   // Contagem regressiva do modal "Jornada finalizada" -> perguntas
   useEffect(() => {
@@ -934,235 +943,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       {/* ========================================================================= */}
       {step === 'task_running' && currentTask && (
         <div className="flex-1 flex flex-col h-screen overflow-hidden">
-          {/* Top Real-time Task HUD & Telemetry */}
-          <header className="bg-[#0c0c0c] border-b border-[#222] px-4 py-2.5 z-40 flex items-center justify-between gap-4 font-mono text-xs shrink-0 shadow-lg">
-            {/* Left: Task Tag & Instruction */}
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="px-2.5 py-1 rounded bg-blue-600 text-white font-bold uppercase text-[11px] shrink-0 shadow-[0_0_10px_rgba(59,130,246,0.3)]">
-                Tarefa {currentTaskIndex + 1} / {test.tasks.length}
-              </span>
-
-              <div className="truncate">
-                <span className="font-bold text-white mr-2">{currentTask.title}:</span>
-                <span className="text-[#bbb] font-sans text-xs hidden sm:inline">
-                  {currentTask.instruction}
-                </span>
-              </div>
-            </div>
-
-            {/* Center: Live Timer & Click counter */}
-            <div className="hidden md:flex items-center gap-4 text-[#888] shrink-0">
-              <div className="flex items-center gap-1.5 text-blue-400 bg-black/60 px-2.5 py-1 rounded border border-[#222]">
-                <Clock className="w-3.5 h-3.5" />
-                <span className="font-mono text-xs font-bold">{formatTimer(taskElapsedSeconds)}</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-[#aaa] bg-black/60 px-2.5 py-1 rounded border border-[#222]">
-                <MousePointer className="w-3.5 h-3.5 text-purple-400" />
-                <span className="font-mono text-xs">{clickCounter} ações</span>
-              </div>
-            </div>
-
-            {/* Right: Actions */}
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowFullInstruction(!showFullInstruction)}
-                className="px-2.5 py-1.5 rounded-lg bg-[#181818] hover:bg-[#222] text-[#888] hover:text-[#ddd] text-[11px] transition-colors border border-[#262626]"
-              >
-                {showFullInstruction ? 'Ocultar detalhes' : 'Instruções'}
-              </button>
-
-              {/* Secondary action: Recarregar Protótipo (never required for initial load) */}
-              <button
-                type="button"
-                onClick={() => {
-                  setIframeLoaded(false);
-                  setLifecycle('LOADING_PROTOTYPE');
-                  setReloadKey(Date.now());
-                  setPipelineSteps((prev) =>
-                    prev.map((s) => (s.step === 3 || s.step === 4 ? { ...s, status: 'running', detail: 'Recarregando runtime do protótipo...' } : s))
-                  );
-                }}
-                className="px-2.5 py-1.5 rounded-lg bg-[#181818] hover:bg-[#222] text-blue-400 hover:text-blue-300 border border-blue-500/30 text-[11px] flex items-center gap-1.5 transition-colors"
-                title="Recarregar o iframe do protótipo real (ação secundária)"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${!iframeLoaded ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">Recarregar Protótipo</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowDifficultyModal(true)}
-                className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1.5 transition-all"
-                title="Relatar que não conseguiu ou encontrou um problema na tarefa"
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Dificuldade</span>
-              </button>
-
-              {/* Conclusão manual só quando não há detecção automática (sem SDK ou tarefa sem caminho mapeado) */}
-              {journeyStarted && (!sdkConnected || !isAutoCompletable(test, currentTask)) && (
-              <button
-                type="button"
-                onClick={handleCompleteCurrentTask}
-                className="px-4 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white font-bold uppercase tracking-wider text-xs flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(34,197,94,0.3)] hover:scale-[1.02]"
-              >
-                <span>Terminei a tarefa</span>
-                <Check className="w-3.5 h-3.5" />
-              </button>
-              )}
-            </div>
-          </header>
-
-          {/* Full Instruction Expanded Banner */}
-          {showFullInstruction && (
-            <div className="bg-[#121212] border-b border-[#2a2a2a] p-4 text-xs font-mono space-y-2 z-30 shrink-0">
-              <div className="flex items-center justify-between">
-                <div className="font-bold text-blue-400 uppercase text-[11px]">
-                  Instrução Detalhada da Tarefa:
-                </div>
-                <div className="text-[10px] text-[#777]">
-                  Critério de Sucesso: {currentTask.successCriteria}
-                </div>
-              </div>
-              <p className="text-white font-sans text-sm">{currentTask.instruction}</p>
-              {currentTask.objective && (
-                <p className="text-[#888] text-[11px]">
-                  Objetivo da pesquisa: {currentTask.objective}
-                </p>
-              )}
-            </div>
-          )}
-
           {/* PROTOTYPE WORKSPACE: Strictly Real Prototype as Source of Truth */}
           <div className="flex-1 bg-[#050505] relative flex flex-col overflow-hidden">
-            {/* Prototype Sub-Bar & Real Runtime Status */}
-            <div className="bg-[#0e0e14] border-b border-[#20202c] px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-mono shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-2.5 h-2.5 rounded-full ${sdkConnected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-blue-400 animate-pulse'} shrink-0`} />
-                <span className="text-white font-bold shrink-0">
-                  Protótipo Real (Source of Truth):
-                </span>
-                <span className="text-blue-400 truncate text-[11px] font-mono" title={test.prototypeUrl}>
-                  {test.prototypeUrl || 'Nenhuma URL informada'}
-                </span>
-                {latestSnapshot && (
-                  <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                    <Camera className="w-3 h-3" />
-                    <span>{latestSnapshot.snapshotId} • REAL_RUNTIME_CAPTURE</span>
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {/* 9-Step Verification Audit Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowPipelineDrawer((prev) => !prev)}
-                  className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-colors ${
-                    showPipelineDrawer
-                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
-                      : 'bg-[#15151f] hover:bg-[#1f1f2e] text-blue-400 border-[#272738]'
-                  }`}
-                  title="Auditoria das 9 etapas de instrumentação real"
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  <span>Pipeline ({pipelineSteps.filter((s) => s.status === 'success').length}/9)</span>
-                  {showPipelineDrawer ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                </button>
-
-                {test.prototypeUrl && (
-                  <a
-                    href={test.prototypeUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 flex items-center gap-1.5 text-[11px] font-bold transition-colors"
-                    title="Abrir URL original diretamente no navegador"
-                  >
-                    <span>Abrir Aba</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-
-                {/* Edit Prototype URL Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempPrototypeUrl(test.prototypeUrl || '');
-                    setShowEditUrlModal(true);
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-[#181824] hover:bg-[#222232] text-[#aaa] hover:text-white border border-[#272738] text-[11px] flex items-center gap-1 transition-colors"
-                  title="Alterar endereço do protótipo real"
-                >
-                  <Settings2 className="w-3 h-3 text-blue-400" />
-                  <span className="hidden sm:inline">Alterar URL</span>
-                </button>
-              </div>
-            </div>
-
-            {/* 9-Step Pipeline Diagnostics Drawer */}
-            {showPipelineDrawer && (
-              <div className="bg-[#0b0c13] border-b border-[#232738] p-4 text-xs font-mono space-y-3 shrink-0 animate-in slide-in-from-top-2 duration-150">
-                <div className="flex items-center justify-between border-b border-[#1c2030] pb-2">
-                  <div className="flex items-center gap-2 text-white font-bold">
-                    <Terminal className="w-4 h-4 text-blue-400" />
-                    <span>Auditoria do Ciclo de Vida: Protótipo Real → SDK → Captura Real → UX Test Lab</span>
-                  </div>
-                  <span className="text-[10px] text-[#777]">Regra: 100% Runtime Real (Mocks e interfaces sintéticas estritamente proibidos)</span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
-                  {pipelineSteps.map((stepItem) => {
-                    const isDone = stepItem.status === 'success';
-                    const isFailed = stepItem.status === 'failed';
-                    const isRunning = stepItem.status === 'running';
-
-                    return (
-                      <div
-                        key={`pipe-${stepItem.step}`}
-                        className={`p-2 rounded-lg border flex flex-col justify-between ${
-                          isDone
-                            ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
-                            : isFailed
-                            ? 'bg-rose-950/30 border-rose-500/40 text-rose-300'
-                            : isRunning
-                            ? 'bg-blue-950/30 border-blue-500/40 text-blue-300'
-                            : 'bg-[#12131c] border-[#1e202e] text-[#888]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-bold text-white text-[10px]">{stepItem.name}</span>
-                          {isDone && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
-                          {isFailed && <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
-                          {isRunning && <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />}
-                        </div>
-                        <div className="text-[10px] truncate mt-1 text-[#aaa] font-mono">
-                          {stepItem.detail}
-                        </div>
-                        {stepItem.error && (
-                          <div className="text-[9px] text-rose-400 mt-1 font-sans">{stepItem.error}</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Diagnostic Alert if Runtime Error Detected */}
-            {runtimeError && (
-              <div className="bg-rose-950/80 border-b border-rose-600/50 px-4 py-3 text-xs font-mono text-rose-200 shrink-0">
-                <div className="flex items-center gap-2 font-bold text-rose-300 mb-1">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>DIAGNÓSTICO DE FALHA DO RUNTIME REAL</span>
-                </div>
-                <p className="text-[11px] text-rose-100">{runtimeError}</p>
-                <div className="text-[10px] text-rose-300/80 mt-1 font-sans">
-                  Regra Absoluta: Nenhum mock ou interface sintética é utilizada. O diagnóstico reflete a integridade da comunicação real com o link do protótipo.
-                </div>
-              </div>
-            )}
-
             {/* MAIN RUNTIME STAGE: Technical Diagnostic State OR Real Prototype Embed */}
             {(lifecycle === 'PROTOTYPE_LOAD_ERROR' || lifecycle === 'CAPTURE_BLOCKED') ? (
               <div className="flex-1 flex items-center justify-center p-6 bg-[#07080e] text-[#eee] font-mono">
@@ -1322,6 +1104,75 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
               </div>
             )}
           </div>
+
+          {/* Cartão flutuante da tarefa: substitui as barras técnicas, deixando o protótipo em tela cheia */}
+          {journeyStarted && !taskDoneModal && (
+            <div
+              className={`fixed bottom-4 z-40 font-sans ${taskCardSide === 'left' ? 'left-4' : 'right-4'} ${
+                taskCardOpen ? 'w-[340px] max-w-[calc(100vw-2rem)]' : ''
+              }`}
+            >
+              {taskCardOpen ? (
+                <div className="bg-white/95 backdrop-blur rounded-2xl shadow-2xl border border-slate-200 overflow-hidden text-slate-800">
+                  <div className="flex items-center justify-between px-4 pt-3">
+                    <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">
+                      Tarefa {currentTaskIndex + 1} de {test.tasks.length}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setTaskCardSide((v) => (v === 'left' ? 'right' : 'left'))}
+                        className="px-1.5 py-0.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-xs"
+                        title="Mover para o outro lado"
+                      >
+                        ⇄
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskCardOpen(false)}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                        title="Minimizar"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="px-4 pb-3 pt-1 space-y-1">
+                    <div className="text-sm font-bold text-slate-900 leading-snug">{currentTask.title}</div>
+                    <p className="text-xs text-slate-600 leading-relaxed">{currentTask.instruction}</p>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowDifficultyModal(true)}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-700 text-xs font-semibold flex items-center gap-1.5 hover:bg-amber-50"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" /> Tive dificuldade
+                    </button>
+                    {(!sdkConnected || !isAutoCompletable(test, currentTask)) && (
+                      <button
+                        type="button"
+                        onClick={handleCompleteCurrentTask}
+                        className="ml-auto px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5" /> Terminei a tarefa
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setTaskCardOpen(true)}
+                  className="px-4 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xl flex items-center gap-2"
+                  title="Ver a tarefa"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                  Tarefa {currentTaskIndex + 1} de {test.tasks.length}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Modal de entrada: nome do participante + iniciar a jornada */}
           {!journeyStarted && (
