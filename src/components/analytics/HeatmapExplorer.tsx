@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ParticipantSession, UsabilityTest } from '../../types';
+import { ParticipantPicker, peopleFromSessions } from './ParticipantPicker';
 import { Flame, MousePointerClick, LayoutGrid, Image as ImageIcon, Users, Clock, Target, Ban, Layers, ImageOff, Maximize2, X } from 'lucide-react';
 
 // Ponto de clique vindo de /api/tests/:id/results (heatmap)
@@ -187,6 +188,15 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
     return (id: string) => names[id] || id;
   }, [realSessions, test, hmMap]);
 
+  const [participant, setParticipant] = useState(fixedParticipantKey || 'all');
+  // pessoa em foco: a da página do participante ou a escolhida no filtro
+  const focusKey = fixedParticipantKey || (participant !== 'all' ? participant : '');
+  const focusSessions = useMemo(
+    () => (focusKey ? realSessions.filter((s) => (s.participantId || s.sessionId) === focusKey) : realSessions),
+    [realSessions, focusKey]
+  );
+  const preferIds = preferSessionIds || (focusKey ? focusSessions.map((s) => s.sessionId) : undefined);
+
   // Lista de cenários: tudo o que o participante realmente viu, na ordem em que navegou,
   // mesmo que o teste não tenha sido mapeado. Caminhos de exemplo sem dados ficam de fora.
   const screens = useMemo(() => {
@@ -194,9 +204,9 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
     const add = (id?: string) => id && !order.includes(id) && order.push(id);
     const mappedIds = new Set((test.screenMap || []).map((m) => m.screenId));
     // 1) caminho esperado (só cenários mapeados de verdade)
-    if (!fixedParticipantKey) test.tasks.forEach((t) => (t.expectedPath || []).filter((id) => mappedIds.has(id)).forEach(add));
+    if (!focusKey) test.tasks.forEach((t) => (t.expectedPath || []).filter((id) => mappedIds.has(id)).forEach(add));
     // 2) ordem real de navegação dos participantes
-    realSessions
+    focusSessions
       .slice()
       .sort((a, b) => a.startTime.localeCompare(b.startTime))
       .forEach((s) =>
@@ -208,14 +218,16 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
       );
     // 3) cenários mapeados não visitados, e qualquer tela com print ou clique
     const counts: Record<string, number> = {};
-    allPoints.forEach((p) => (counts[p.screen] = (counts[p.screen] || 0) + 1));
-    if (!fixedParticipantKey) {
+    allPoints
+      .filter((p) => !focusKey || participantBySession[p.sessionId]?.key === focusKey)
+      .forEach((p) => (counts[p.screen] = (counts[p.screen] || 0) + 1));
+    if (!focusKey) {
       (test.screenMap || []).forEach((m) => add(m.screenId));
       Object.keys(counts).forEach(add);
       Object.keys(hmMap).forEach(add);
     } else {
       // página da pessoa: só as telas que ela viu ou clicou
-      allPoints.filter((p) => participantBySession[p.sessionId]?.key === fixedParticipantKey).forEach((p) => add(p.screen));
+      allPoints.filter((p) => participantBySession[p.sessionId]?.key === focusKey).forEach((p) => add(p.screen));
     }
     return order
       .filter((id) => !/^(figma-frame|task-|SCREEN-001|inicio$|start$|survey$|sus$|end$|fim$)/.test(id))
@@ -235,10 +247,10 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
           inExpected: true
         };
       });
-  }, [test, allPoints, hmMap, nameOf, realSessions, fixedParticipantKey, participantBySession]);
+  }, [test, allPoints, hmMap, nameOf, focusSessions, focusKey, participantBySession]);
 
   const [screenId, setScreenId] = useState<string>('');
-  const [participant, setParticipant] = useState(fixedParticipantKey || 'all');
+  const pickerPeople = useMemo(() => peopleFromSessions(realSessions), [realSessions]);
   const [taskId, setTaskId] = useState('all');
   const [clickType, setClickType] = useState<'all' | 'valid' | 'dead'>('all');
   const [layers, setLayers] = useState<Record<Layer, boolean>>({ heat: true, clicks: false, zones: false });
@@ -290,12 +302,12 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
     const ranked = [...screenBase.snaps].sort((a, b) => {
       const da = Math.abs((a.documentWidth || a.viewportWidth || 0) - target);
       const db = Math.abs((b.documentWidth || b.viewportWidth || 0) - target);
-      const own = (x: SnapshotMeta) => (preferSessionIds && x.sessionId && preferSessionIds.includes(x.sessionId) ? 0 : 1);
+      const own = (x: SnapshotMeta) => (preferIds && x.sessionId && preferIds.includes(x.sessionId) ? 0 : 1);
       return own(a) - own(b) || da - db || (a.sessionId === 'MAPEAMENTO' ? 1 : 0) - (b.sessionId === 'MAPEAMENTO' ? 1 : 0);
     });
     const snap = ranked[0];
     return { ...screenBase, snap, imageSrc: snap.image || snap.imageUrl, lowRes: false };
-  }, [screenBase, activeWidth]);
+  }, [screenBase, activeWidth, preferIds?.join(',')]);
   const sameWidth = (p: ClickPoint) => !p.docWidth || !activeWidth || Math.abs(p.docWidth - Number(activeWidth)) / Number(activeWidth) <= 0.06;
 
   const filtered = useMemo(
@@ -441,19 +453,25 @@ export const HeatmapExplorer: React.FC<HeatmapExplorerProps> = ({ test, sessions
 
   return (
     <div className="space-y-5">
+      {/* Visão geral (todos os cliques somados) ou o mapa de uma pessoa */}
+      {!fixedParticipantKey && pickerPeople.length > 0 && (
+        <div className="p-3 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-3">
+          <ParticipantPicker people={pickerPeople} value={participant} onChange={setParticipant} allLabel="Mapa geral" />
+          <div className="text-[11px] text-slate-500">
+            {participant === 'all' ? (
+              <>Todos os cliques de {pickerPeople.length} participante(s) somados</>
+            ) : (
+              <>
+                Cliques de <b className="text-slate-800">{pickerPeople.find((p) => p.key === participant)?.name}</b>, com os prints da sessão desta pessoa
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Filtros */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-wrap items-end gap-3 text-xs">
-        <div className={fixedParticipantKey ? 'hidden' : ''}>
-          <div className="text-[11px] font-semibold text-slate-500 mb-1">Participante</div>
-          <select value={participant} onChange={(e) => setParticipant(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 min-w-[180px]">
-            <option value="all">Todos ({participants.length})</option>
-            {participants.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <div className="hidden" />
         <div>
           <div className="text-[11px] font-semibold text-slate-500 mb-1">Tarefa</div>
           <select value={taskId} onChange={(e) => setTaskId(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 min-w-[180px]">

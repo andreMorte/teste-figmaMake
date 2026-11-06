@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ExpectedPathStep, ParticipantSession, ScreenHeatmapData, TrackedEvent, UsabilityTest } from '../../types';
+import { ParticipantPicker, peopleFromSessions } from './ParticipantPicker';
 import {
   Compass,
   AlertTriangle,
@@ -89,7 +90,15 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
     [screenHeatmaps]
   );
 
-  const realSessions = useMemo(() => (isDemo ? [] : sessions.filter((s) => s.testId === test.id)), [isDemo, sessions, test.id]);
+  const testSessions = useMemo(() => (isDemo ? [] : sessions.filter((s) => s.testId === test.id)), [isDemo, sessions, test.id]);
+  const people = useMemo(() => peopleFromSessions(testSessions), [testSessions]);
+  const [personKey, setPersonKey] = useState('all');
+  const person = people.find((p) => p.key === personKey);
+  // visão geral (todos) ou a jornada de uma pessoa
+  const realSessions = useMemo(
+    () => (personKey === 'all' ? testSessions : testSessions.filter((s) => (s.participantId || s.sessionId) === personKey)),
+    [testSessions, personKey]
+  );
 
   const data = useMemo(() => {
     if (!task) return null;
@@ -316,6 +325,22 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
           </div>
         )}
       </div>
+
+      {/* Quem: todos (tráfego agregado) ou a jornada de uma pessoa */}
+      {people.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-50/70 border border-slate-200">
+          <ParticipantPicker people={people} value={personKey} onChange={setPersonKey} allLabel="Todos" />
+          <div className="text-[11px] text-slate-500">
+            {person ? (
+              <>
+                Jornada de <b className="text-slate-800">{person.name}</b> nesta tarefa
+              </>
+            ) : (
+              <>Tráfego somado de {people.length} participante(s)</>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* KPIs reais da tarefa */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
