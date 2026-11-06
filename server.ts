@@ -852,6 +852,26 @@ app.post('/api/sessions/:sessionId/abandon', (req, res) => {
   return res.json({ success: true, session });
 });
 
+// Retomada depois de F5 / queda: a mesma sessão continua (o beacon de saída tinha marcado abandono)
+app.post('/api/sessions/:sessionId/resume', (req, res) => {
+  const { sessionId } = req.params;
+  const session = serverSessionsStore.find((s) => s.sessionId === sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (session.status === 'Abandonado') {
+    session.status = 'Em andamento';
+    session.endTime = undefined;
+    const participant = serverParticipantsStore.find((p) => p.participantId === session.participantId && p.testId === session.testId);
+    if (participant) participant.status = 'Em andamento';
+    // desfaz o "abandono" registrado só porque a página recarregou
+    for (let i = serverEventsStore.length - 1; i >= 0; i--) {
+      const e = serverEventsStore[i];
+      if (e.sessionId === sessionId && e.eventType === 'SESSION_ABANDON') serverEventsStore.splice(i, 1);
+    }
+    updateTestCounters(session.testId);
+  }
+  return res.json({ success: true, session: { ...session, events: undefined } });
+});
+
 // 6. Submit SUS Answers & Score
 app.post('/api/sus', (req, res) => {
   const { testId, sessionId, participantId, answers } = req.body;

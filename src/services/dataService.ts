@@ -365,6 +365,45 @@ export async function createSession(testId: string, participantName: string, par
   return newSession;
 }
 
+/** Retoma uma sessão existente (F5 no meio do teste). Retorna null se ela não existir mais. */
+export async function resumeSession(sessionId: string): Promise<ParticipantSession | null> {
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/resume`, { method: 'POST' });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const srv = body?.session;
+    if (!srv?.sessionId) return null;
+    const existing = sessionsCache.find((x) => x.sessionId === srv.sessionId);
+    const session: ParticipantSession = existing
+      ? { ...existing, status: srv.status }
+      : {
+          sessionId: srv.sessionId,
+          participantId: srv.participantId,
+          participantNumber: srv.participantNumber,
+          testId: srv.testId,
+          participantName: srv.participantName,
+          participantType: 'human',
+          status: srv.status,
+          startTime: srv.startTime || new Date().toISOString(),
+          durationSeconds: srv.durationSeconds || 0,
+          tasksCompleted: srv.tasksCompleted || 0,
+          totalTasks: srv.totalTasks || 0,
+          successRate: srv.successRate || 0,
+          clickCount: srv.clickCount || 0,
+          errorCount: srv.errorCount || 0,
+          returnCount: srv.returnCount || 0,
+          actualPaths: srv.actualPaths || {},
+          events: [{ eventId: 'EVT-RESUME', sessionId: srv.sessionId, testId: srv.testId, timestamp: new Date().toISOString(), screen: 'resume', eventType: 'SESSION_START', currentScreen: 'resume' } as TrackedEvent]
+        };
+    sessionsCache = [session, ...sessionsCache.filter((x) => x.sessionId !== session.sessionId)];
+    activeSessionId = session.sessionId;
+    bindAbandonOnLeave();
+    return session;
+  } catch {
+    return null;
+  }
+}
+
 export async function trackEvent(event: Omit<TrackedEvent, 'eventId' | 'timestamp'>): Promise<TrackedEvent> {
   const fullEvent: TrackedEvent = {
     ...event,

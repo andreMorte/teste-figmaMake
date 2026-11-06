@@ -13,7 +13,8 @@ import {
   completeSession,
   getTestSlots,
   saveSusResponse,
-  updateTestPrototypeUrl
+  updateTestPrototypeUrl,
+  resumeSession
 } from '../../services/dataService';
 import { saveScreenSnapshot } from '../../services/snapshotService';
 import { npsOf, susQuestionsOf } from '../../utils/surveyDefaults';
@@ -92,6 +93,37 @@ export interface PipelineStep {
  * 2) se ela não foi mapeada, o primeiro cenário mapeado da tarefa seguinte (as tarefas são contínuas).
  * Caminhos de exemplo ("home", "detalhes"...) nunca aparecem no protótipo e são ignorados.
  */
+// Progresso do participante salvo no navegador: um F5 continua de onde parou (mesma sessão)
+type SavedRun = {
+  sessionId?: string;
+  name?: string;
+  taskIndex?: number;
+  pendingStart?: boolean;
+  step?: string;
+  customAnswers?: Record<string, string | number>;
+  at?: number;
+};
+const runKey = (testId: string) => `uxlab-run:${testId}`;
+function readRun(testId: string): SavedRun | null {
+  try {
+    const raw = localStorage.getItem(runKey(testId));
+    return raw ? (JSON.parse(raw) as SavedRun) : null;
+  } catch {
+    return null;
+  }
+}
+function saveRun(testId: string, patch: SavedRun) {
+  try {
+    const cur = readRun(testId) || {};
+    localStorage.setItem(runKey(testId), JSON.stringify({ ...cur, ...patch, at: Date.now() }));
+  } catch {}
+}
+function clearRun(testId: string) {
+  try {
+    localStorage.removeItem(runKey(testId));
+  } catch {}
+}
+
 function mappedPath(test: UsabilityTest, task?: TestTask): string[] {
   if (!task) return [];
   const ignored = new Set(test.ignoredScreens || []);
@@ -178,6 +210,15 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
   // SUS questions state (10 questions, answers 1 to 5)
   const [susAnswers, setSusAnswers] = useState<number[]>([4, 2, 4, 2, 4, 2, 5, 2, 4, 2]);
+
+  // guarda em que parte do questionário a pessoa está (F5 volta para o mesmo lugar)
+  useEffect(() => {
+    if (!test || !session) return;
+    if (step === 'custom_survey' || step === 'sus' || step === 'completed' || step === 'closed') saveRun(test.id, { step });
+  }, [step, test, session]);
+  useEffect(() => {
+    if (test && session && step === 'custom_survey') saveRun(test.id, { customAnswers });
+  }, [customAnswers, test, session, step]);
   const [susSubmitted, setSusSubmitted] = useState(false);
   const [computedSus, setComputedSus] = useState<number | null>(null);
   const [finalComment, setFinalComment] = useState('');
@@ -231,6 +272,59 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         // Automatic transition to running task
         setStep('task_running');
         setCurrentTaskIndex(0);
+
+        // F5 / reabriu o link: retoma a mesma sessão em vez de pedir o nome de novo.
+        // ?novo=1 no link força começar outra pessoa no mesmo navegador.
+        try {
+          if (new URLSearchParams(window.location.search).has('novo')) clearRun(finalTest.id);
+        } catch {}
+        const saved = readRun(finalTest.id);
+        const SIX_HOURS = 6 * 3600 * 1000;
+        if (saved?.sessionId && Date.now() - (saved.at || 0) < SIX_HOURS) {
+          if (saved.step === 'completed' || saved.step === 'closed') {
+            setJourneyStarted(true);
+            setStep('closed');
+            return;
+          }
+          const resumed = await resumeSession(saved.sessionId);
+          if (isCancelled) return;
+          if (!resumed) {
+            clearRun(finalTest.id);
+          } else if (resumed.status === 'Concluído') {
+            saveRun(finalTest.id, { step: 'closed' });
+            setJourneyStarted(true);
+            setStep('closed');
+          } else {
+            setSession(resumed);
+            setParticipantName(saved.name || resumed.participantName || '');
+            completingTaskRef.current = false;
+            document.querySelectorAll('iframe').forEach((f) =>
+              f.contentWindow?.postMessage({ type: 'UXLAB_SET_SESSION', sessionId: resumed.sessionId, participantId: resumed.participantId }, '*')
+            );
+            setJourneyStarted(true);
+            const idx = saved.taskIndex || 0;
+            if (saved.step === 'custom_survey' || saved.step === 'sus') {
+              setCustomAnswers(saved.customAnswers || {});
+              setStep(saved.step as RunnerStep);
+            } else if (idx >= finalTest.tasks.length || saved.step === 'questions') {
+              setTimeout(() => handleGoToQuestionsRef.current(), 300);
+            } else {
+              setCurrentTaskIndex(idx);
+              if (saved.pendingStart) {
+                const nextTask = finalTest.tasks[idx];
+                saveRun(finalTest.id, { pendingStart: false });
+                void trackEvent({
+                  sessionId: resumed.sessionId,
+                  testId: finalTest.id,
+                  taskId: nextTask.id,
+                  screen: `task-${idx + 1}-start`,
+                  eventType: 'TASK_START',
+                  currentScreen: nextTask.expectedPath[0] || `etapa-${idx + 1}`
+                });
+              }
+            }
+          }
+        }
       } else {
         const notFoundMsg = `Teste ${testId} não foi localizado no sistema.`;
         setRuntimeError(notFoundMsg);
@@ -593,6 +687,10 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
     await completeTask(session.sessionId, currentTask.id, true);
 
+    // progresso salvo: um F5 agora já começa na próxima tarefa (ou nas perguntas)
+    const hasNext = currentTaskIndex + 1 < test.tasks.length;
+    saveRun(test.id, hasNext ? { taskIndex: currentTaskIndex + 1, pendingStart: true } : { taskIndex: test.tasks.length, step: 'questions' });
+
     // Mostra o modal de tarefa concluída; o avanço acontece a partir dele
     setTaskDoneModal({
       kind: currentTaskIndex + 1 < test.tasks.length ? 'next' : 'final',
@@ -610,6 +708,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     completingTaskRef.current = false;
     if (!nextTask) return;
     setCurrentTaskIndex(nextIdx);
+    saveRun(test.id, { taskIndex: nextIdx, pendingStart: false });
     await trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
@@ -701,6 +800,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       );
       setCurrentTaskIndex(0);
       completingTaskRef.current = false;
+      saveRun(test.id, { sessionId: sess.sessionId, name, taskIndex: 0, pendingStart: false, step: 'task_running', customAnswers: {} });
       const firstTask = test.tasks[0];
       if (firstTask) {
         await trackEvent({
@@ -1175,17 +1275,6 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                     >
                       <AlertTriangle className="w-3.5 h-3.5" /> Tive dificuldade
                     </button>
-                    {/* Sem botão "Terminei": o fim é detectado pela tela final mapeada.
-                        Rede de segurança só para testes antigos sem nenhum mapeamento (nada a detectar). */}
-                    {!isAutoCompletable(test, currentTask) && (
-                      <button
-                        type="button"
-                        onClick={handleCompleteCurrentTask}
-                        className="ml-auto text-[11px] text-slate-400 hover:text-slate-600 underline underline-offset-2"
-                      >
-                        Já terminei
-                      </button>
-                    )}
                   </div>
                 </div>
               ) : (
