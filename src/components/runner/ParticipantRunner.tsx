@@ -76,7 +76,7 @@ export type RuntimeLifecycle =
 
 export type CaptureSourceType = 'REAL_RUNTIME_CAPTURE' | 'NO_CAPTURE';
 
-type RunnerStep = 'welcome' | 'task_running' | 'custom_survey' | 'sus' | 'completed';
+type RunnerStep = 'welcome' | 'task_running' | 'custom_survey' | 'sus' | 'completed' | 'closed';
 
 export interface PipelineStep {
   step: number;
@@ -1718,48 +1718,50 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       {/* 4. TELA DE SUCESSO & AGRADECIMENTO */}
       {/* ========================================================================= */}
       {step === 'completed' && (
-        <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
-          <div className="max-w-md w-full bg-[#0d0d0d] border border-[#222] rounded-2xl p-6 sm:p-8 space-y-6 text-center font-mono shadow-2xl">
-            <div className="w-14 h-14 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 flex items-center justify-center mx-auto shadow-[0_0_20px_rgba(34,197,94,0.2)]">
-              <CheckCircle2 className="w-8 h-8" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div role="dialog" aria-modal="true" aria-labelledby="thanks-title" className="w-full max-w-sm rounded-3xl bg-white p-7 text-center shadow-2xl space-y-5">
+            <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-200">
+              <Check className="w-8 h-8 stroke-[3]" />
             </div>
-
-            <div className="space-y-2 font-sans">
-              <h2 className="text-xl sm:text-2xl font-bold text-white">
-                Obrigado pela sua colaboração!
+            <div className="space-y-1.5">
+              <h2 id="thanks-title" className="text-xl font-semibold text-slate-900">
+                Obrigado pelas respostas!
               </h2>
-              <p className="text-xs sm:text-sm text-[#888]">
-                Sua participação foi registrada com sucesso e os dados comportamentais foram sincronizados para a equipe de UX.
-              </p>
+              <p className="text-sm text-slate-500">Sua participação foi registrada com sucesso.</p>
             </div>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setStep('closed')}
+              className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
-            {computedSus !== null && (
-              <div className="p-4 rounded-xl bg-black border border-[#222] space-y-1">
-                <div className="text-[10px] text-[#777] uppercase tracking-wider">
-                  Pontuação de Usabilidade Declarada (SUS):
-                </div>
-                <div className="text-2xl font-bold text-blue-400 font-mono">
-                  {computedSus.toFixed(1)} / 100
-                </div>
-                <div className="text-[10px] text-[#666]">
-                  {computedSus >= 80
-                    ? 'Excelente usabilidade percebida (Grau A)'
-                    : computedSus >= 68
-                    ? 'Usabilidade na média da indústria (Grau C)'
-                    : 'Fricção ou dificuldade moderada percebida'}
-                </div>
-              </div>
+      {/* Encerramento: só a mensagem de agradecimento (o participante nunca vê o painel nem métricas) */}
+      {step === 'closed' && (
+        <div className="fixed inset-0 z-50 overflow-hidden bg-[#06122b] text-white flex items-center justify-center p-6">
+          <div className="absolute -top-40 -left-40 w-[36rem] h-[36rem] rounded-full bg-blue-600/40 blur-3xl animate-pulse" />
+          <div className="absolute -bottom-48 -right-32 w-[40rem] h-[40rem] rounded-full bg-cyan-400/25 blur-3xl animate-pulse" style={{ animationDelay: '1.2s' }} />
+          <div className="absolute top-1/3 right-1/4 w-72 h-72 rounded-full bg-indigo-500/25 blur-3xl" />
+          <div
+            className="absolute inset-0 opacity-[0.07]"
+            style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '28px 28px' }}
+          />
+          <div className="relative max-w-2xl text-center space-y-6 animate-in fade-in zoom-in-95 duration-700">
+            <div className="w-20 h-20 mx-auto rounded-full bg-white/10 border border-white/20 backdrop-blur flex items-center justify-center">
+              <CheckCircle2 className="w-10 h-10 text-cyan-300" />
+            </div>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight leading-tight">
+              Muito obrigado por participar do teste de usabilidade da Porto Seguro
+            </h1>
+            {test?.name && (
+              <div className="inline-flex px-4 py-2 rounded-full bg-white/10 border border-white/15 text-base sm:text-lg text-cyan-100">{test.name}</div>
             )}
-
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={onExit}
-                className="w-full py-2.5 px-4 rounded-xl bg-[#1a1a1a] hover:bg-[#252525] text-white text-xs font-bold uppercase tracking-wider transition-colors border border-[#333]"
-              >
-                Voltar à Plataforma / Encerrar
-              </button>
-            </div>
+            <p className="text-sm text-white/60">Você já pode fechar esta janela.</p>
           </div>
         </div>
       )}
