@@ -18,6 +18,7 @@ import {
 } from '../../services/dataService';
 import { saveScreenSnapshot } from '../../services/snapshotService';
 import { npsOf, susQuestionsOf } from '../../utils/surveyDefaults';
+import { PortoIntro } from './PortoIntro';
 import {
   toFigmaEmbedUrl,
   canInstrumentPrototype,
@@ -188,6 +189,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const [redirectCountdown, setRedirectCountdown] = useState(6);
   // Cartão flutuante da tarefa (aberto ao começar cada tarefa; o participante pode minimizar ou trocar de lado)
   const [taskCardOpen, setTaskCardOpen] = useState(true);
+  const [showIntro, setShowIntro] = useState(true); // abertura animada da Porto ao abrir o link
   // Ajuda da IA (só em testes não moderados)
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInput, setAiInput] = useState('');
@@ -1072,6 +1074,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
   return (
     <div className="min-h-screen bg-[#050505] text-[#e5e5e5] flex flex-col font-sans">
+      {showIntro && <PortoIntro ready={!!test || !!runtimeError} onDone={() => setShowIntro(false)} />}
       <style>{`@keyframes uxlabCountdown{from{width:0}to{width:100%}}.uxlab-countdown{animation-name:uxlabCountdown;animation-timing-function:linear;animation-fill-mode:forwards}`}</style>
       {/* ========================================================================= */}
       {/* 1. TELA DE ENTRADA / BOAS-VINDAS DO PARTICIPANTE */}
