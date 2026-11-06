@@ -412,6 +412,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
 
   // Final Publish Handler
   const handlePublish = async () => {
+    if (undetectable.length > 0) return; // sem fim mapeado o participante ficaria preso
     const newTest = await createTest({
       id: testId.trim() || undefined,
       name,
@@ -457,6 +458,21 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
     setCopiedProtoDirect(true);
     setTimeout(() => setCopiedProtoDirect(false), 2000);
   };
+
+  // Tela que encerra cada tarefa (mesma regra do participante): o fim mapeado da própria tarefa
+  // ou o início mapeado da tarefa seguinte. Telas vazias (transição) não contam.
+  const realScreens = new Set(
+    screenMap.filter((m) => m.dialog || m.thumbnail || (m.actions || []).length || (m.inputs || []).length).map((m) => m.screenId)
+  );
+  const undetectable = tasks
+    .map((t, i) => {
+      const path = t.expectedPath.filter((id) => realScreens.has(id));
+      const last = t.expectedPath.filter((id) => !screenMap.some((m) => m.screenId === id && !realScreens.has(id))).slice(-1)[0];
+      const own = !!last && path.includes(last);
+      const next = tasks[i + 1] ? tasks[i + 1].expectedPath.some((id) => realScreens.has(id)) : false;
+      return own || next ? -1 : i;
+    })
+    .filter((i) => i >= 0);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300">
@@ -1207,31 +1223,21 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 </div>
               </div>
 
-              {/* Tarefas sem caminho mapeado: conclusão manual pelo participante */}
-              {(() => {
-                const unmapped = tasks
-                  .map((t, i) => ({ t, i }))
-                  .filter(({ t }) => {
-                    const last = t.expectedPath[t.expectedPath.length - 1];
-                    return !last || !screenMap.some((m) => m.screenId === last);
-                  });
-                if (!unmapped.length) return null;
-                return (
-                  <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2">
-                    <div className="font-bold">
-                      {unmapped.length === tasks.length ? 'Nenhuma tarefa tem caminho mapeado' : `${unmapped.length} tarefa(s) sem caminho mapeado`}
-                    </div>
-                    <p className="leading-relaxed">
-                      {unmapped.map(({ i }) => `Tarefa ${i + 1}`).join(', ')}: o sistema não sabe qual tela encerra a tarefa, então o participante verá o botão
-                      “Terminei a tarefa”. A navegação, os prints e o heatmap continuam sendo registrados normalmente. Para conclusão automática e caminho
-                      ideal, volte à Etapa 2 e use “Mapear cenários do protótipo”.
-                    </p>
-                    <button type="button" onClick={() => setCurrentStep(2)} className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold">
-                      Ir para o mapeamento
-                    </button>
+              {/* Tarefas cujo fim o sistema não consegue detectar: bloqueiam a publicação */}
+              {undetectable.length > 0 && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-900 space-y-2">
+                  <div className="font-bold">
+                    {undetectable.length === tasks.length ? 'Nenhuma tarefa tem fim mapeado' : `${undetectable.length} tarefa(s) sem fim mapeado`}
                   </div>
-                );
-              })()}
+                  <p className="leading-relaxed">
+                    {undetectable.map((i) => `Tarefa ${i + 1}`).join(', ')}: o sistema precisa saber em qual tela cada tarefa termina para avançar sozinho, sem o participante
+                    clicar em nada. Volte à Etapa 2, use “Mapear cenários do protótipo” e grave o caminho até a última tela.
+                  </p>
+                  <button type="button" onClick={() => setCurrentStep(2)} className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold">
+                    Ir para o mapeamento
+                  </button>
+                </div>
+              )}
 
               {/* Prototype Configuration Section */}
               <div className="p-5 sm:p-6 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-4 text-xs">
@@ -1550,7 +1556,8 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 <button
                   type="button"
                   onClick={handlePublish}
-                  disabled={!prototypeUrl.trim()}
+                  disabled={!prototypeUrl.trim() || undetectable.length > 0}
+                  title={undetectable.length > 0 ? 'Mapeie o fim de todas as tarefas para publicar' : undefined}
                   className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-xs disabled:opacity-50"
                 >
                   <Check className="w-4 h-4 stroke-[2.5]" />

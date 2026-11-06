@@ -87,16 +87,26 @@ export interface PipelineStep {
 }
 
 /**
- * A tarefa só termina sozinha quando o último cenário do caminho esperado foi mapeado no
- * protótipo (existe no screenMap, preenchido pelo mapeador). Caminhos de exemplo
- * ("home", "detalhes"...) nunca aparecem no protótipo: nesses casos a conclusão é manual.
+ * Tela que encerra a tarefa automaticamente (sem botão "Terminei"):
+ * 1) o último cenário mapeado do caminho esperado da própria tarefa;
+ * 2) se ela não foi mapeada, o primeiro cenário mapeado da tarefa seguinte (as tarefas são contínuas).
+ * Caminhos de exemplo ("home", "detalhes"...) nunca aparecem no protótipo e são ignorados.
  */
-function isAutoCompletable(test: UsabilityTest, task: TestTask): boolean {
+function mappedPath(test: UsabilityTest, task?: TestTask): string[] {
+  if (!task) return [];
   const ignored = new Set(test.ignoredScreens || []);
-  const path = (task.expectedPath || []).filter((id) => !ignored.has(id));
-  const finalScreen = path[path.length - 1];
-  if (!finalScreen) return false;
-  return (test.screenMap || []).some((m) => m.screenId === finalScreen);
+  const mapped = new Set((test.screenMap || []).map((m) => m.screenId));
+  return (task.expectedPath || []).filter((id) => !ignored.has(id) && mapped.has(id));
+}
+function taskEndScreen(test: UsabilityTest, idx: number): string | undefined {
+  const own = mappedPath(test, test.tasks[idx]);
+  const ownLast = (test.tasks[idx]?.expectedPath || []).filter((id) => !(test.ignoredScreens || []).includes(id)).slice(-1)[0];
+  if (ownLast && own.includes(ownLast)) return ownLast;
+  const next = mappedPath(test, test.tasks[idx + 1]);
+  return next[0];
+}
+function isAutoCompletable(test: UsabilityTest, task: TestTask): boolean {
+  return !!taskEndScreen(test, test.tasks.indexOf(task));
 }
 
 export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
@@ -315,9 +325,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           });
 
           // Chegou ao último cenário mapeado da tarefa -> conclui automaticamente
-          const activeTask = test.tasks[currentTaskIndex];
-          const activePath = activeTask ? activeTask.expectedPath.filter((id) => !(test.ignoredScreens || []).includes(id)) : [];
-          const finalScreen = activeTask && isAutoCompletable(test, activeTask) ? activePath[activePath.length - 1] : undefined;
+          const finalScreen = taskEndScreen(test, currentTaskIndex);
           if (journeyStarted && !taskDoneModal && finalScreen && screenId === finalScreen && !completingTaskRef.current) {
             // confirma depois de 1,2s que a pessoa continua na tela final (telas de passagem não encerram a tarefa)
             setTimeout(() => {
@@ -436,11 +444,12 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     setTaskCardOpen(true);
   }, [currentTaskIndex, journeyStarted]);
 
-  // Contagem regressiva do modal "Jornada finalizada" -> perguntas
+  // Contagem regressiva automática: próxima tarefa ou, no fim da jornada, as perguntas (sem cliques)
   useEffect(() => {
-    if (taskDoneModal?.kind !== 'final') return;
+    if (!taskDoneModal) return;
     if (redirectCountdown <= 0) {
-      handleGoToQuestionsRef.current();
+      if (taskDoneModal.kind === 'final') handleGoToQuestionsRef.current();
+      else handleStartNextTaskRef.current();
       return;
     }
     const t = setTimeout(() => setRedirectCountdown((c) => c - 1), 1000);
@@ -589,7 +598,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       kind: currentTaskIndex + 1 < test.tasks.length ? 'next' : 'final',
       finishedIdx: currentTaskIndex
     });
-    setRedirectCountdown(6);
+    setRedirectCountdown(currentTaskIndex + 1 < test.tasks.length ? 7 : 5);
   };
 
   // Próxima tarefa (a partir do modal)
@@ -712,6 +721,10 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const handleGoToQuestionsRef = useRef<() => void>(() => {});
   handleGoToQuestionsRef.current = () => {
     void handleGoToQuestions();
+  };
+  const handleStartNextTaskRef = useRef<() => void>(() => {});
+  handleStartNextTaskRef.current = () => {
+    void handleStartNextTask();
   };
 
   // Sempre aponta para a versão mais recente do handler (usado pelo listener de postMessage)
@@ -837,6 +850,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
   return (
     <div className="min-h-screen bg-[#050505] text-[#e5e5e5] flex flex-col font-sans">
+      <style>{`@keyframes uxlabCountdown{from{width:0}to{width:100%}}.uxlab-countdown{animation-name:uxlabCountdown;animation-timing-function:linear;animation-fill-mode:forwards}`}</style>
       {/* ========================================================================= */}
       {/* 1. TELA DE ENTRADA / BOAS-VINDAS DO PARTICIPANTE */}
       {/* ========================================================================= */}
@@ -1161,13 +1175,15 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                     >
                       <AlertTriangle className="w-3.5 h-3.5" /> Tive dificuldade
                     </button>
-                    {(!sdkConnected || !isAutoCompletable(test, currentTask)) && (
+                    {/* Sem botão "Terminei": o fim é detectado pela tela final mapeada.
+                        Rede de segurança só para testes antigos sem nenhum mapeamento (nada a detectar). */}
+                    {!isAutoCompletable(test, currentTask) && (
                       <button
                         type="button"
                         onClick={handleCompleteCurrentTask}
-                        className="ml-auto px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5"
+                        className="ml-auto text-[11px] text-slate-400 hover:text-slate-600 underline underline-offset-2"
                       >
-                        <Check className="w-3.5 h-3.5" /> Terminei a tarefa
+                        Já terminei
                       </button>
                     )}
                   </div>
@@ -1210,9 +1226,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                   <ol className="space-y-1.5 text-xs text-slate-600">
                     <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">1</span>A tarefa aparece na barra do topo da tela.</li>
                     <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">2</span>Navegue no protótipo como faria normalmente.{' '}
-                      {test.tasks.every((t) => isAutoCompletable(test, t))
-                        ? 'Quando chegar ao fim, o sistema avisa sozinho.'
-                        : 'Ao terminar, clique em “Terminei a tarefa” no topo da tela.'}</li>
+Quando você chegar ao fim de cada tarefa, o sistema percebe e avança sozinho.</li>
                     <li className="flex gap-2"><span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">3</span>No final, você responde algumas perguntas rápidas.</li>
                   </ol>
                   {slots && slots.limit > 0 && (
@@ -1302,25 +1316,21 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 space-y-1.5">
                   {taskDoneModal.kind === 'final' ? (
                     <>
-                      <button
-                        type="button"
-                        onClick={handleGoToQuestions}
-                        className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2"
-                      >
-                        <span>Responder perguntas</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                      <p className="text-[11px] text-slate-500">Redirecionando em {redirectCountdown}s...</p>
+                      <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                        <div className="h-full bg-emerald-500 rounded-full uxlab-countdown" style={{ animationDuration: '5s' }} />
+                      </div>
+                      <p className="text-[11px] text-slate-500">Levando você às perguntas em {redirectCountdown}s...</p>
                     </>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={handleStartNextTask}
-                      className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2"
-                    >
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>Iniciar próxima tarefa</span>
-                    </button>
+                    <>
+                      <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                        <div key={taskDoneModal.finishedIdx} className="h-full bg-blue-600 rounded-full uxlab-countdown" style={{ animationDuration: '7s' }} />
+                      </div>
+                      <p className="text-[11px] text-slate-500">A próxima tarefa começa sozinha em {redirectCountdown}s.</p>
+                      <button type="button" onClick={handleStartNextTask} className="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                        Começar agora
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
