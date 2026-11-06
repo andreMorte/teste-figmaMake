@@ -137,6 +137,35 @@ function taskEndScreen(test: UsabilityTest, idx: number): string | undefined {
   const next = mappedPath(test, test.tasks[idx + 1]);
   return next[0];
 }
+// Testes mapeados com versões antigas do detector têm ids diferentes para a mesma tela
+// (ex.: "emprestimo-com-garantia-de-imovel-2-de-3-andre" x "dados-complementares-2-de-3").
+// Sem isso a tarefa nunca termina. Equivalência: mesma etapa "N de M" + mesmo título
+// (ou alguma palavra em comum no id). Modais e telas sem etapa só por id exato.
+const STOP = new Set(['de', 'do', 'da', 'e', 'com', 'a', 'o', 'em', 'para', 'modal']);
+const stepOf = (id: string, label?: string) => {
+  const m = (label || '').match(/(\d+)\s*de\s*(\d+)/) || id.match(/(\d+)-de-(\d+)/);
+  return m ? `${m[1]}-${m[2]}` : '';
+};
+const slug = (t?: string) =>
+  (t || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+const wordsOf = (id: string) => new Set(id.replace(/\d+-de-\d+/g, ' ').split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP.has(w) && !/^\d+$/.test(w)));
+function sameScreen(test: UsabilityTest, targetId: string, currentId: string, current?: { title?: string; stepLabel?: string; dialog?: boolean }): boolean {
+  if (!targetId || !currentId) return false;
+  if (targetId === currentId) return true;
+  const target = (test.screenMap || []).find((m) => m.screenId === targetId);
+  if (target?.dialog || current?.dialog) return false;
+  const st = stepOf(targetId, target?.stepLabel);
+  if (!st || st !== stepOf(currentId, current?.stepLabel)) return false;
+  if (target?.title && current?.title && slug(target.title) === slug(current.title)) return true;
+  const a = wordsOf(targetId);
+  return [...wordsOf(currentId)].some((w) => a.has(w));
+}
+
 function isAutoCompletable(test: UsabilityTest, task: TestTask): boolean {
   return !!taskEndScreen(test, test.tasks.indexOf(task));
 }
@@ -276,7 +305,14 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         // F5 / reabriu o link: retoma a mesma sessão em vez de pedir o nome de novo.
         // ?novo=1 no link força começar outra pessoa no mesmo navegador.
         try {
-          if (new URLSearchParams(window.location.search).has('novo')) clearRun(finalTest.id);
+          const qs = new URLSearchParams(window.location.search);
+          if (qs.has('novo')) {
+            clearRun(finalTest.id);
+            // tira o ?novo do endereço: um F5 depois disso deve retomar, não recomeçar
+            qs.delete('novo');
+            const rest = qs.toString();
+            window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash);
+          }
         } catch {}
         const saved = readRun(finalTest.id);
         const SIX_HOURS = 6 * 3600 * 1000;
@@ -420,10 +456,10 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
           // Chegou ao último cenário mapeado da tarefa -> conclui automaticamente
           const finalScreen = taskEndScreen(test, currentTaskIndex);
-          if (journeyStarted && !taskDoneModal && finalScreen && screenId === finalScreen && !completingTaskRef.current) {
+          if (journeyStarted && !taskDoneModal && finalScreen && sameScreen(test, finalScreen, screenId, data.params) && !completingTaskRef.current) {
             // confirma depois de 1,2s que a pessoa continua na tela final (telas de passagem não encerram a tarefa)
             setTimeout(() => {
-              if (lastScreenRef.current === finalScreen) handleCompleteCurrentTaskRef.current();
+              if (lastScreenRef.current === screenId) handleCompleteCurrentTaskRef.current();
             }, 1200);
           }
         }
