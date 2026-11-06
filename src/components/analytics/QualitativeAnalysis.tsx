@@ -24,7 +24,7 @@ interface QualItem {
   participantKey: string;
   participantName: string;
   participantNumber?: number;
-  source: 'pergunta' | 'dificuldade' | 'desistencia' | 'comentario_sus';
+  source: 'pergunta' | 'dificuldade' | 'desistencia' | 'comentario_sus' | 'ajuda_ia';
   questionId?: string;
   question?: string;
   questionType?: string;
@@ -76,7 +76,8 @@ const SOURCE_LABEL: Record<QualItem['source'], string> = {
   pergunta: 'Pergunta do teste',
   dificuldade: '"Tive dificuldade"',
   desistencia: 'Ao desistir',
-  comentario_sus: 'Comentário final'
+  comentario_sus: 'Comentário final',
+  ajuda_ia: 'Pediu ajuda à IA'
 };
 
 const CAT = {

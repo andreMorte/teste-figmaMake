@@ -43,7 +43,9 @@ import {
   Activity,
   Code,
   ScanSearch,
-  MousePointerClick
+  MousePointerClick,
+  Users,
+  Bot
 } from 'lucide-react';
 
 interface CreateTestWizardProps {
@@ -58,6 +60,8 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   onOpenRunner
 }) => {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  // Antes da Etapa 1: o teste é moderado (facilitador acompanha) ou não moderado (ajuda da IA para o participante)?
+  const [moderation, setModeration] = useState<'moderated' | 'unmoderated' | null>(null);
 
   // STEP 1 STATE: Info (Aberto para QUALQUER teste)
   const [name, setName] = useState('Novo Teste de Usabilidade de Produto');
@@ -421,6 +425,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       productName,
       researcherName,
       participantLimit,
+      moderation: moderation || 'unmoderated',
       category,
       status: 'Publicado',
       prototypeUrl: prototypeUrl.trim(),
@@ -491,6 +496,63 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
           onClose={() => setIsMapperOpen(false)}
         />
       )}
+      {/* Escolha do formato antes de tudo */}
+      {!moderation && (
+        <div className="p-6 sm:p-8 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-6">
+          <div className="text-center max-w-xl mx-auto space-y-1.5">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">Como este teste vai acontecer?</h2>
+            <p className="text-sm text-slate-500">Isso define se o participante pode pedir ajuda à IA durante as tarefas.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[
+              {
+                key: 'moderated' as const,
+                icon: Users,
+                tone: 'bg-blue-50 text-blue-600',
+                title: 'Moderado',
+                desc: 'Um facilitador acompanha a sessão ao vivo e pode orientar o participante.',
+                bullets: ['Facilitador assiste e conduz', 'Sem botão de ajuda da IA', 'Ideal para entrevistas e testes exploratórios']
+              },
+              {
+                key: 'unmoderated' as const,
+                icon: Bot,
+                tone: 'bg-violet-50 text-violet-600',
+                title: 'Não moderado',
+                desc: 'O participante faz sozinho, no tempo dele, pelo link do teste.',
+                bullets: ['Ninguém acompanha ao vivo', 'Botão "Ajuda da IA" nas tarefas', 'Cada pedido de ajuda fica registrado nos resultados']
+              }
+            ].map((o) => {
+              const Icon = o.icon;
+              return (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setModeration(o.key)}
+                  className="group text-left p-5 rounded-2xl border-2 border-slate-200 hover:border-blue-500 hover:shadow-md transition-all bg-white space-y-3"
+                >
+                  <span className={`w-11 h-11 rounded-xl flex items-center justify-center ${o.tone}`}>
+                    <Icon className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <div className="text-base font-semibold text-slate-900">{o.title}</div>
+                    <div className="text-sm text-slate-500 mt-0.5">{o.desc}</div>
+                  </div>
+                  <ul className="space-y-1">
+                    {o.bullets.map((b) => (
+                      <li key={b} className="flex items-center gap-2 text-xs text-slate-600">
+                        <Check className="w-3.5 h-3.5 text-emerald-500 stroke-[3]" /> {b}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="text-xs font-semibold text-blue-600 group-hover:translate-x-0.5 transition-transform">Escolher →</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {moderation && (<>
       {/* Step Progress Header */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center justify-between">
@@ -543,6 +605,16 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
               <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
                 Defina as bases do teste de usabilidade para qualquer produto ou fluxo digital.
               </p>
+              <div className="mt-2 inline-flex items-center gap-2 text-xs">
+                <span className={`px-2.5 py-1 rounded-full font-semibold ${moderation === 'moderated' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
+                  {moderation === 'moderated' ? 'Teste moderado' : 'Teste não moderado · ajuda da IA ativa'}
+                </span>
+                {!createdTestResult && (
+                  <button type="button" onClick={() => setModeration(null)} className="text-slate-500 hover:text-blue-600 underline underline-offset-2">
+                    alterar
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Presets rápido */}
@@ -1161,6 +1233,11 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   <div className="text-slate-500">
                     {productName || 'Produto não informado'} · {researcherName || 'Pesquisador não informado'}
                   </div>
+                  <div className="pt-1">
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${moderation === 'moderated' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
+                      {moderation === 'moderated' ? 'Moderado · sem ajuda da IA' : 'Não moderado · com ajuda da IA'}
+                    </span>
+                  </div>
                 </div>
                 <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-1">
                   <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Participantes</div>
@@ -1278,6 +1355,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
           )}
         </div>
       )}
+      </>)}
     </div>
   );
 };

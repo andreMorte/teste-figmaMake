@@ -4,7 +4,7 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { Pool } from 'pg';
-import { collectQualitative, hashInput, analyzeQualitative, aiEngine, aiStatus, QualResult } from './qualitative';
+import { collectQualitative, hashInput, analyzeQualitative, aiEngine, aiStatus, aiText, QualResult } from './qualitative';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -1273,6 +1273,58 @@ function scheduleQualitative(testId: string) {
     }, 15000)
   );
 }
+
+// Ajuda da IA para o participante (testes não moderados).
+// Recebe a tarefa e o que está na tela; devolve uma dica curta, sem fazer pelo participante.
+app.post('/api/assist', async (req, res) => {
+  const { testId, taskId, screenId, screenName, title, stepLabel, actions, inputs, question, history, helpCount } = req.body || {};
+  const test = serverTestsStore.find((t) => t.id === testId);
+  if (!test) return res.status(404).json({ error: 'Test not found' });
+  if (test.moderation === 'moderated') return res.status(403).json({ error: 'Teste moderado: ajuda da IA desativada' });
+  const task = (test.tasks || []).find((t: any) => t.id === taskId) || (test.tasks || [])[0];
+  const ignored = emptySceneIds(test);
+  const steps: any[] = ((task?.expectedPathDetails?.length === task?.expectedPath?.length ? task.expectedPathDetails : (task?.expectedPath || []).map((id: string) => ({ screenId: id }))) || [])
+    .filter((st: any) => !ignored.has(st.screenId));
+  const nameOf = (id: string) => (test.screenMap || []).find((m: any) => m.screenId === id)?.screenName || id;
+  const stepKey = (id: string, label?: string) => {
+    const m = String(label || '').match(/(\d+)\s*de\s*(\d+)/) || String(id || '').match(/(\d+)-de-(\d+)/);
+    return m ? `${m[1]}-${m[2]}` : '';
+  };
+  let pos = steps.findIndex((st) => st.screenId === screenId);
+  if (pos < 0 && stepKey(screenId, stepLabel)) pos = steps.findIndex((st) => stepKey(st.screenId) === stepKey(screenId, stepLabel));
+  const next = pos >= 0 ? steps[pos + 1] : steps[0];
+  const nextHint = next ? `${next.trigger ? `clicar em "${next.trigger}" para ` : ''}chegar em "${nameOf(next.screenId)}"` : '';
+  const acts = (Array.isArray(actions) ? actions : []).slice(0, 30);
+  const flds = (Array.isArray(inputs) ? inputs : []).slice(0, 15);
+  const n = Number(helpCount) || 1;
+
+  const fallback = () => {
+    if (next?.trigger) return `Procure na tela a opção “${next.trigger}” e clique nela para continuar.`;
+    if (flds.length) return `Preencha os campos desta tela (${flds.slice(0, 3).join(', ')}) e depois procure o botão para avançar.`;
+    return `Releia a tarefa: “${task?.instruction || task?.title || ''}”. Procure na tela uma opção relacionada a isso.`;
+  };
+
+  if (!aiEngine()) return res.json({ answer: fallback(), engine: 'local' });
+
+  const prompt = `Você é o assistente de ajuda de um protótipo digital. Uma pessoa está tentando cumprir uma tarefa e pediu ajuda.
+Responda em português do Brasil, com no máximo 2 frases curtas e linguagem simples, falando direto com a pessoa ("você").
+${n <= 1 ? 'Este é o primeiro pedido de ajuda: dê uma dica que oriente, sem entregar o passo exato logo de cara.' : 'A pessoa já pediu ajuda antes: seja direto e diga exatamente o que clicar ou preencher.'}
+Use os nomes dos botões e campos exatamente como aparecem na tela. Não fale de "teste", "pesquisa", "métricas", "caminho esperado" nem de tarefas futuras. Não invente funções que não estão na lista.
+
+Tarefa atual: ${task?.title || ''}${task?.instruction ? ` — ${task.instruction}` : ''}
+Tela em que a pessoa está: ${screenName || title || screenId || 'desconhecida'}
+Botões e links visíveis: ${acts.join(' | ') || 'não informado'}
+Campos visíveis: ${flds.join(' | ') || 'nenhum'}
+Próximo passo correto (use para orientar, não cite assim): ${nextHint || 'a pessoa está fora do fluxo; ajude a voltar para a tela inicial da tarefa'}
+${Array.isArray(history) && history.length ? `Conversa anterior:\n${history.slice(-4).map((h: any) => `Pessoa: ${h.q}\nAssistente: ${h.a}`).join('\n')}\n` : ''}Pergunta da pessoa: ${String(question || 'Não sei o que fazer agora.').slice(0, 400)}`;
+  try {
+    const { text, model } = await aiText(prompt);
+    return res.json({ answer: text.replace(/^["“]|["”]$/g, '').slice(0, 600), engine: 'ia', model });
+  } catch (err: any) {
+    console.warn('[IA] ajuda ao participante falhou:', String(err?.message || err).slice(0, 160));
+    return res.json({ answer: fallback(), engine: 'local' });
+  }
+});
 
 app.get('/api/ai/status', (req, res) => {
   res.json({ engine: aiEngine(), model: process.env.GEMINI_MODEL || null, ...aiStatus });

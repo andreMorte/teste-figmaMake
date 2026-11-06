@@ -11,7 +11,7 @@ export interface QualItem {
   participantKey: string;
   participantName: string;
   participantNumber?: number;
-  source: 'pergunta' | 'dificuldade' | 'desistencia' | 'comentario_sus';
+  source: 'pergunta' | 'dificuldade' | 'desistencia' | 'comentario_sus' | 'ajuda_ia';
   questionId?: string;
   question?: string;
   questionType?: string;
@@ -108,6 +108,9 @@ export function collectQualitative(test: any, sessions: any[], events: any[], su
     }
     if ((e.eventType === 'TASK_ERROR' || e.eventType === 'TASK_ABANDON') && meta.comment && !DEFAULT_DIFFICULTY.test(String(meta.comment).trim())) {
       push({ ...who, source: e.eventType === 'TASK_ERROR' ? 'dificuldade' : 'desistencia', taskTitle: taskTitle(e.taskId), text: String(meta.comment).trim() });
+    }
+    if (e.eventType === 'AI_HELP' && meta.question && String(meta.question).trim()) {
+      push({ ...who, source: 'ajuda_ia', taskTitle: taskTitle(e.taskId), text: String(meta.question).trim() });
     }
     if (e.eventType === 'SUS_COMPLETE' && meta.comment && String(meta.comment).trim()) {
       push({ ...who, source: 'comentario_sus', text: String(meta.comment).trim() });
@@ -249,7 +252,7 @@ function buildPrompt(test: any, items: QualItem[], participants: QualParticipant
 Dados (JSON):
 ${JSON.stringify(data)}
 
-Origem das respostas: "pergunta" = pergunta configurada pelo pesquisador (likert de 1 a 5 vem como "N de 5"; NPS vem como "N de 10" ou "N de 5"; converta para 0-10: 0-6 detrator, 7-8 neutro, 9-10 promotor); "dificuldade" = participante clicou em "Tive dificuldade" durante a tarefa; "desistencia" = comentário ao desistir da tarefa; "comentario_sus" = comentário livre no final.
+Origem das respostas: "pergunta" = pergunta configurada pelo pesquisador (likert de 1 a 5 vem como "N de 5"; NPS vem como "N de 10" ou "N de 5"; converta para 0-10: 0-6 detrator, 7-8 neutro, 9-10 promotor); "dificuldade" = participante clicou em "Tive dificuldade" durante a tarefa; "desistencia" = comentário ao desistir da tarefa; "comentario_sus" = comentário livre no final; "ajuda_ia" = dúvida que a pessoa escreveu ao pedir ajuda à IA durante a tarefa (sinal forte de dor: mostra onde travou e como descreve o problema).
 
 Faça:
 1. items: classifique CADA resposta (use o mesmo id) em "dor" (fricção, confusão, crítica, nota baixa), "positivo" (algo que funcionou bem), "sugestao" (pedido ou ideia de melhoria) ou "neutro". Para likert: 1-2 = dor, 3 = neutro, 4-5 = positivo, considerando o sentido da pergunta. Dê um tema curto (2 a 4 palavras), intensidade de 1 a 5, a emoção predominante (ex.: frustração, confusão, insegurança, satisfação, confiança, alívio, indiferença) e um insight de uma frase.
@@ -476,7 +479,7 @@ function classifyText(i: QualItem): { category: QualCategory; intensity: number;
   let neg = NEG.filter((w) => t.includes(w)).length + POS.filter((w) => t.includes(w) && negated(w)).length;
   const pos = POS.filter((w) => new RegExp(`\\b${w}`).test(t) && !negated(w)).length;
   const sug = SUG.some((w) => t.includes(w));
-  if (i.source === 'dificuldade' || i.source === 'desistencia') neg += 1;
+  if (i.source === 'dificuldade' || i.source === 'desistencia' || i.source === 'ajuda_ia') neg += 1;
   const intensity = Math.min(5, 2 + INTENS.filter((w) => t.includes(w)).length + (/[!]{1,}/.test(t) ? 1 : 0));
   if (sug && neg <= pos) return { category: 'sugestao', intensity, emotion: 'expectativa' };
   if (neg > pos) return { category: 'dor', intensity, emotion: /confus|entendi|perdid|dúvida|duvida/.test(t) ? 'confusão' : 'frustração' };
@@ -538,4 +541,63 @@ function localAnalysis(items: QualItem[], participants: QualParticipantContext[]
     },
     recommendations: []
   };
+}
+
+// ---------------------------------------------------------------------------
+// Texto curto (ajuda da IA para o participante em testes não moderados)
+// ---------------------------------------------------------------------------
+export async function aiText(prompt: string, budgetMs = 25000): Promise<{ text: string; model: string }> {
+  const engine = aiEngine();
+  if (!engine) throw new Error('IA não configurada');
+  if (engine === 'claude') {
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
+    const res = await withTimeout(
+      fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: 400, messages: [{ role: 'user', content: prompt }] })
+      }),
+      budgetMs,
+      model
+    );
+    const body: any = await res.json();
+    if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
+    return { text: String((body.content || []).map((c: any) => c.text || '').join('')).trim(), model };
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  const discovered = await discoverModels();
+  // modelos "lite" primeiro: respondem mais rápido e uma dica curta não precisa de mais
+  const lite = discovered.filter((m) => /lite/.test(m));
+  const models = [...new Set([process.env.GEMINI_MODEL, lastGoodModel, ...lite.slice(0, 2), ...discovered.slice(0, 2), 'gemini-flash-lite-latest', 'gemini-flash-latest'].filter(Boolean) as string[])].slice(0, 4);
+  const deadline = Date.now() + budgetMs;
+  let lastErr: any;
+  for (const model of models) {
+    const left = deadline - Date.now();
+    if (left < 3000) break;
+    const t0 = Date.now();
+    try {
+      const r = await withTimeout(
+        ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            temperature: 0.4,
+            maxOutputTokens: 400,
+            ...(/^gemini-2\.5-flash(-lite)?$/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+          } as any
+        }),
+        Math.min(15000, left),
+        model
+      );
+      const text = String(r.text || '').trim();
+      if (!text) throw new Error('resposta vazia');
+      logAttempt({ model, ms: Date.now() - t0, ok: true });
+      return { text, model };
+    } catch (err: any) {
+      lastErr = err;
+      logAttempt({ model, ms: Date.now() - t0, ok: false, error: String(err?.message || err).slice(0, 220) });
+      if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(String(err?.message || err))) throw err;
+    }
+  }
+  throw lastErr || new Error('IA sem resposta');
 }

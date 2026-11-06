@@ -167,6 +167,7 @@ export interface UsabilityTest {
   participantLimit?: number; // quantidade de clientes/participantes previstos (fecha o link ao atingir)
   screenMap?: MappedScreen[]; // catálogo de cenários mapeados do protótipo
   customQuestions?: CustomQuestion[];
+  moderation?: 'moderated' | 'unmoderated'; // moderado: facilitador acompanha; não moderado: participante tem ajuda da IA
   npsConfig?: NpsConfig; // pergunta e escala do NPS editáveis
   ignoredScreens?: string[]; // cenários de transição removidos do mapeamento (servidor)
   susQuestions?: string[]; // 10 afirmações do SUS (texto editável; ordem e sentido mantidos)
@@ -198,6 +199,7 @@ export interface Participant {
 
 export type EventType =
   | 'PAGE_VIEW'
+  | 'AI_HELP' // participante pediu ajuda à IA (teste não moderado)
   | 'SCREEN_VIEW'
   | 'CLICK'
   | 'TASK_START'

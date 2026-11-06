@@ -71,6 +71,7 @@ interface TaskBlock {
   duration: number;
   steps: Step[];
   difficulties: string[];
+  aiHelps: { q: string; a: string; screen?: string }[];
   ideal: boolean | null;
 }
 
@@ -178,6 +179,9 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
           .filter((e) => e.eventType === 'TASK_ERROR' || e.eventType === 'TASK_ABANDON')
           .map((e) => String((e.metadata as any)?.comment || ''))
           .filter(Boolean),
+        aiHelps: evs
+          .filter((e) => (e.eventType as string) === 'AI_HELP')
+          .map((e) => ({ q: String((e.metadata as any)?.question || ''), a: String((e.metadata as any)?.answer || ''), screen: (e.metadata as any)?.screenName })),
         ideal: expected.length ? path.join('>') === expected.join('>') : null
       };
     });
@@ -207,6 +211,7 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
       returns,
       offPath,
       difficulties: tasks.reduce((a, t) => a + t.difficulties.length, 0),
+      aiHelps: tasks.reduce((a, t) => a + t.aiHelps.length, 0),
       susScore: typeof last.susScore === 'number' ? last.susScore : sus?.computedScore,
       susAnswers: sus?.answers,
       susComment,
@@ -254,7 +259,13 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
     { label: 'Cliques', value: view.clicks, sub: `${view.dead} sem efeito`, icon: MousePointerClick, tone: 'text-slate-900' },
     { label: 'Voltou a telas', value: view.returns, icon: RotateCcw, tone: view.returns ? 'text-amber-600' : 'text-slate-900' },
     { label: 'Telas fora do caminho', value: view.offPath, icon: GitBranch, tone: view.offPath ? 'text-violet-600' : 'text-slate-900' },
-    { label: 'Dificuldades', value: view.difficulties, icon: AlertTriangle, tone: view.difficulties ? 'text-rose-600' : 'text-slate-900' }
+    {
+      label: 'Dificuldades',
+      value: view.difficulties,
+      sub: view.test.moderation === 'unmoderated' ? `${view.aiHelps} pedido(s) de ajuda à IA` : undefined,
+      icon: AlertTriangle,
+      tone: view.difficulties || view.aiHelps ? 'text-rose-600' : 'text-slate-900'
+    }
   ];
 
   const pointsOfPerson = (data.heatmap || []).filter((p: any) => view.sessionIds.includes(p.sessionId));
@@ -385,6 +396,21 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
                     </li>
                   ))}
                 </ol>
+              )}
+              {task.aiHelps.length > 0 && (
+                <div className="px-5 py-3 bg-violet-50 border-t border-violet-100 text-xs space-y-2">
+                  <div className="font-semibold text-violet-800 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" /> Pediu ajuda à IA {task.aiHelps.length}×
+                  </div>
+                  {task.aiHelps.map((h, i) => (
+                    <div key={i} className="space-y-0.5">
+                      <div className="text-slate-800">
+                        “{h.q}” {h.screen && <span className="text-slate-400">· em {h.screen}</span>}
+                      </div>
+                      <div className="text-violet-700">↳ {h.a}</div>
+                    </div>
+                  ))}
+                </div>
               )}
               {task.difficulties.length > 0 && (
                 <div className="px-5 py-3 bg-rose-50 border-t border-rose-100 text-xs text-rose-800 space-y-1">

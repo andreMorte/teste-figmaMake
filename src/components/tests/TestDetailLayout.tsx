@@ -189,6 +189,13 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
               <span className="text-xs text-slate-500">
                 Pesquisador: <span className="font-medium text-slate-700">{test.researcherName}</span>
               </span>
+              {test.moderation && (
+                <span
+                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${test.moderation === 'moderated' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}
+                >
+                  {test.moderation === 'moderated' ? 'Moderado' : 'Não moderado · ajuda da IA'}
+                </span>
+              )}
             </div>
 
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
