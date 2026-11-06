@@ -124,6 +124,13 @@ export interface CustomQuestion {
   required?: boolean;
 }
 
+export interface NpsConfig {
+  question: string;
+  scaleMax: 5 | 10; // escala 0–5 ou 0–10
+  minLabel: string; // texto do 0
+  maxLabel: string; // texto da nota máxima
+}
+
 export interface MetricConfig {
   taskSuccessRate: boolean;
   completionRate: boolean;
@@ -160,6 +167,8 @@ export interface UsabilityTest {
   participantLimit?: number; // quantidade de clientes/participantes previstos (fecha o link ao atingir)
   screenMap?: MappedScreen[]; // catálogo de cenários mapeados do protótipo
   customQuestions?: CustomQuestion[];
+  npsConfig?: NpsConfig; // pergunta e escala do NPS editáveis
+  susQuestions?: string[]; // 10 afirmações do SUS (texto editável; ordem e sentido mantidos)
   metricConfig: MetricConfig;
   verifiedAt?: string;
   shareUrl: string;

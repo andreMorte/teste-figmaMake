@@ -18,6 +18,7 @@ export interface QualItem {
   taskTitle?: string;
   text: string;
   value?: number | string;
+  scaleMax?: number;
   at?: string;
 }
 
@@ -92,7 +93,17 @@ export function collectQualitative(test: any, sessions: any[], events: any[], su
       }
       const nps = meta.answers.NPS;
       if (nps !== undefined && nps !== null && String(nps).trim() !== '') {
-        push({ ...who, source: 'pergunta', questionId: 'NPS', question: 'NPS: de 0 a 10, o quanto recomendaria esta experiência?', questionType: 'nps', text: `${nps} de 10`, value: Number(nps) });
+        const max = Number(meta.answers.NPS_MAX) || Number(test.npsConfig?.scaleMax) || 10;
+        push({
+          ...who,
+          source: 'pergunta',
+          questionId: 'NPS',
+          question: `NPS (0 a ${max}): ${test.npsConfig?.question || 'o quanto recomendaria esta experiência?'}`,
+          questionType: 'nps',
+          text: `${nps} de ${max}`,
+          value: Number(nps),
+          scaleMax: max
+        });
       }
     }
     if ((e.eventType === 'TASK_ERROR' || e.eventType === 'TASK_ABANDON') && meta.comment && !DEFAULT_DIFFICULTY.test(String(meta.comment).trim())) {
@@ -238,7 +249,7 @@ function buildPrompt(test: any, items: QualItem[], participants: QualParticipant
 Dados (JSON):
 ${JSON.stringify(data)}
 
-Origem das respostas: "pergunta" = pergunta configurada pelo pesquisador (likert de 1 a 5 vem como "N de 5"; NPS vem como "N de 10": 0-6 detrator, 7-8 neutro, 9-10 promotor); "dificuldade" = participante clicou em "Tive dificuldade" durante a tarefa; "desistencia" = comentário ao desistir da tarefa; "comentario_sus" = comentário livre no final.
+Origem das respostas: "pergunta" = pergunta configurada pelo pesquisador (likert de 1 a 5 vem como "N de 5"; NPS vem como "N de 10" ou "N de 5"; converta para 0-10: 0-6 detrator, 7-8 neutro, 9-10 promotor); "dificuldade" = participante clicou em "Tive dificuldade" durante a tarefa; "desistencia" = comentário ao desistir da tarefa; "comentario_sus" = comentário livre no final.
 
 Faça:
 1. items: classifique CADA resposta (use o mesmo id) em "dor" (fricção, confusão, crítica, nota baixa), "positivo" (algo que funcionou bem), "sugestao" (pedido ou ideia de melhoria) ou "neutro". Para likert: 1-2 = dor, 3 = neutro, 4-5 = positivo, considerando o sentido da pergunta. Dê um tema curto (2 a 4 palavras), intensidade de 1 a 5, a emoção predominante (ex.: frustração, confusão, insegurança, satisfação, confiança, alívio, indiferença) e um insight de uma frase.
@@ -453,7 +464,7 @@ const INTENS = ['muito', 'super', 'bem ', 'demais', 'extremamente', 'totalmente'
 
 function classifyText(i: QualItem): { category: QualCategory; intensity: number; emotion: string } {
   if (i.questionType === 'nps' && typeof i.value === 'number') {
-    const v = i.value;
+    const v = (i.value / (i.scaleMax || 10)) * 10; // escala 0–5 convertida para a régua 0–10
     return v <= 6 ? { category: 'dor', intensity: v <= 3 ? 5 : 4, emotion: 'insatisfação' } : v >= 9 ? { category: 'positivo', intensity: 4, emotion: 'satisfação' } : { category: 'neutro', intensity: 2, emotion: 'indiferença' };
   }
   if (i.questionType === 'likert_scale' && typeof i.value === 'number') {

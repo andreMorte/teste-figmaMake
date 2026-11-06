@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ParticipantSession, TrackedEvent, UsabilityTest } from '../../types';
 import { HeatmapExplorer } from '../analytics/HeatmapExplorer';
-import { OFFICIAL_SUS_QUESTIONS } from '../../data/mockData';
+import { npsOf, susQuestionsOf, npsCategory, NPS_LABEL } from '../../utils/surveyDefaults';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -424,24 +424,34 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
             </div>
           )}
 
-          {view.custom.NPS !== undefined && view.custom.NPS !== '' && (
-            <div className="rounded-2xl bg-white border border-slate-200 p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-slate-900">NPS</div>
-                {(() => {
-                  const n = Number(view.custom.NPS);
-                  const [label, tone] = n >= 9 ? ['Promotor', 'bg-emerald-50 text-emerald-700'] : n >= 7 ? ['Neutro', 'bg-amber-50 text-amber-700'] : ['Detrator', 'bg-rose-50 text-rose-700'];
-                  return <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${tone}`}>{n} · {label}</span>;
-                })()}
+          {view.custom.NPS !== undefined && view.custom.NPS !== '' && (() => {
+            const cfg = npsOf(view.test);
+            const max = Number(view.custom.NPS_MAX) || cfg.scaleMax;
+            const n = Number(view.custom.NPS);
+            const cat = npsCategory(n, max);
+            const tone = cat === 'promotor' ? 'bg-emerald-50 text-emerald-700' : cat === 'neutro' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700';
+            return (
+              <div className="rounded-2xl bg-white border border-slate-200 p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-slate-900">NPS</div>
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${tone}`}>
+                    {n} de {max} · {NPS_LABEL[cat]}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500">{cfg.question}</div>
+                <div className="flex flex-wrap gap-1">
+                  {Array.from({ length: max + 1 }, (_, k) => (
+                    <span key={k} className={`w-7 h-7 rounded-md text-[11px] font-semibold flex items-center justify-center ${n === k ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                      {k}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  0 = {cfg.minLabel} · {max} = {cfg.maxLabel}
+                </div>
               </div>
-              <div className="text-xs text-slate-500">De 0 a 10, o quanto recomendaria esta experiência?</div>
-              <div className="flex flex-wrap gap-1">
-                {Array.from({ length: 11 }, (_, n) => (
-                  <span key={n} className={`w-7 h-7 rounded-md text-[11px] font-semibold flex items-center justify-center ${Number(view.custom.NPS) === n ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{n}</span>
-                ))}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="rounded-2xl bg-white border border-slate-200 p-5 space-y-4">
             <div className="flex items-center justify-between">
@@ -452,9 +462,9 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
             </div>
             {view.susAnswers ? (
               <div className="space-y-3">
-                {OFFICIAL_SUS_QUESTIONS.map((q, i) => (
+                {susQuestionsOf(view.test).map((q, i) => (
                   <div key={i} className="space-y-1">
-                    <div className="text-xs text-slate-600 leading-snug">{q}</div>
+                    <div className="text-xs text-slate-600 leading-snug">{i + 1}. {q}</div>
                     <div className="flex items-center gap-1">
                       {[1, 2, 3, 4, 5].map((n) => (
                         <span

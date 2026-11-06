@@ -16,7 +16,7 @@ import {
   updateTestPrototypeUrl
 } from '../../services/dataService';
 import { saveScreenSnapshot } from '../../services/snapshotService';
-import { OFFICIAL_SUS_QUESTIONS } from '../../data/mockData';
+import { npsOf, susQuestionsOf } from '../../utils/surveyDefaults';
 import {
   toFigmaEmbedUrl,
   canInstrumentPrototype,
@@ -1556,36 +1556,39 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
             })}
           </div>
 
-          {test.metricConfig.nps && (
-            <div className="p-5 rounded-xl bg-[#0a0a0a] border border-[#222] space-y-3">
-              <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center text-xs font-bold shrink-0">
-                  {surveyQuestions.length + 1}
-                </span>
-                <div className="text-sm font-sans font-medium text-white">
-                  De 0 a 10, o quanto você recomendaria esta experiência a um amigo ou colega?
+          {test.metricConfig.nps && (() => {
+            const nps = npsOf(test);
+            return (
+              <div className="p-5 rounded-xl bg-[#0a0a0a] border border-[#222] space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center text-xs font-bold shrink-0">
+                    {surveyQuestions.length + 1}
+                  </span>
+                  <div className="text-sm font-sans font-medium text-white">{nps.question}</div>
+                </div>
+                <div className="pl-9 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${nps.scaleMax + 1}, minmax(0, 1fr))` }}>
+                  {Array.from({ length: nps.scaleMax + 1 }, (_, n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setCustomAnswers({ ...customAnswers, NPS: n, NPS_MAX: nps.scaleMax })}
+                      className={`py-2 rounded-lg border font-mono text-xs font-bold transition-all ${
+                        customAnswers.NPS === n ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black border-[#222] text-[#888] hover:border-[#333] hover:text-white'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <div className="pl-9 flex justify-between text-[10px] text-[#666] font-sans">
+                  <span>0 · {nps.minLabel}</span>
+                  <span>
+                    {nps.scaleMax} · {nps.maxLabel}
+                  </span>
                 </div>
               </div>
-              <div className="pl-9 grid grid-cols-11 gap-1.5">
-                {Array.from({ length: 11 }, (_, n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setCustomAnswers({ ...customAnswers, NPS: n })}
-                    className={`py-2 rounded-lg border font-mono text-xs font-bold transition-all ${
-                      customAnswers.NPS === n ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black border-[#222] text-[#888] hover:border-[#333] hover:text-white'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-              <div className="pl-9 flex justify-between text-[10px] text-[#666] font-sans">
-                <span>Nada provável</span>
-                <span>Muito provável</span>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="flex items-center justify-end gap-4 pt-4">
             {missingRequired > 0 && (
@@ -1626,7 +1629,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           </div>
 
           <div className="space-y-3">
-            {OFFICIAL_SUS_QUESTIONS.map((qText, idx) => {
+            {susQuestionsOf(test).map((qText, idx) => {
               const currentVal = susAnswers[idx];
               return (
                 <div

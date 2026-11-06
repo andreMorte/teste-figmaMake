@@ -12,6 +12,8 @@ import {
 import { isFigmaUrl, toFigmaEmbedUrl, getShareableTestUrl } from '../../utils/figmaUtils';
 import { ScreenMapper, getTaskSteps, withTaskSteps } from './ScreenMapper';
 import { MetricsStep } from './MetricsStep';
+import { DEFAULT_NPS, DEFAULT_SUS_QUESTIONS } from '../../utils/surveyDefaults';
+import { NpsConfig } from '../../types';
 import { MappedScreen } from '../../types';
 import {
   Check,
@@ -110,6 +112,10 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       required: false
     }
   ]);
+
+  // STEP 3 STATE: NPS e SUS editáveis
+  const [npsConfig, setNpsConfig] = useState<NpsConfig>(DEFAULT_NPS);
+  const [susQuestions, setSusQuestions] = useState<string[]>(DEFAULT_SUS_QUESTIONS);
 
   // STEP 3 STATE: Metric Config
   const [metrics, setMetrics] = useState<MetricConfig>({
@@ -422,7 +428,10 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       screenMap,
       // perguntas desligadas ou sem texto não vão para o participante
       customQuestions: metrics.customQuestions === false ? [] : customQuestions.filter((q) => q.question.trim()),
-      metricConfig: metrics
+      metricConfig: metrics,
+      npsConfig: metrics.nps ? npsConfig : undefined,
+      // só grava as afirmações do SUS se o time mudou o texto oficial
+      susQuestions: metrics.sus && susQuestions.some((q, i) => q.trim() !== DEFAULT_SUS_QUESTIONS[i]) ? susQuestions.map((q, i) => q.trim() || DEFAULT_SUS_QUESTIONS[i]) : undefined
     });
 
     setCreatedTestResult(newTest);
@@ -1017,6 +1026,10 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
           customQuestions={customQuestions}
           setCustomQuestions={setCustomQuestions}
           tasksCount={tasks.length}
+          npsConfig={npsConfig}
+          setNpsConfig={setNpsConfig}
+          susQuestions={susQuestions}
+          setSusQuestions={setSusQuestions}
           onBack={() => setCurrentStep(2)}
           onNext={() => setCurrentStep(4)}
         />

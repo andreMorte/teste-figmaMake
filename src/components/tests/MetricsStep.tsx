@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { CustomQuestion, CustomQuestionType, MetricConfig } from '../../types';
+import { CustomQuestion, CustomQuestionType, MetricConfig, NpsConfig } from '../../types';
+import { DEFAULT_SUS_QUESTIONS, npsCategory, npsDefaultQuestion } from '../../utils/surveyDefaults';
 import {
   ChevronLeft,
   ChevronRight,
@@ -21,7 +22,9 @@ import {
   Type,
   Star,
   ListOrdered,
-  X
+  X,
+  Pencil,
+  ChevronDown
 } from 'lucide-react';
 
 interface Props {
@@ -30,6 +33,10 @@ interface Props {
   customQuestions: CustomQuestion[];
   setCustomQuestions: (q: CustomQuestion[]) => void;
   tasksCount: number;
+  npsConfig: NpsConfig;
+  setNpsConfig: (c: NpsConfig) => void;
+  susQuestions: string[];
+  setSusQuestions: (q: string[]) => void;
   onBack: () => void;
   onNext: () => void;
 }
@@ -121,7 +128,21 @@ const Switch: React.FC<{ on: boolean; onChange: () => void; label: string; size?
   </button>
 );
 
-export const MetricsStep: React.FC<Props> = ({ metrics, setMetrics, customQuestions, setCustomQuestions, tasksCount, onBack, onNext }) => {
+export const MetricsStep: React.FC<Props> = ({
+  metrics,
+  setMetrics,
+  customQuestions,
+  setCustomQuestions,
+  tasksCount,
+  npsConfig,
+  setNpsConfig,
+  susQuestions,
+  setSusQuestions,
+  onBack,
+  onNext
+}) => {
+  const [susOpen, setSusOpen] = useState(false);
+  const susCustomized = susQuestions.filter((q, i) => q.trim() !== DEFAULT_SUS_QUESTIONS[i]).length;
   const [optionDraft, setOptionDraft] = useState<Record<string, string>>({});
   const toggle = (k: Key) => setMetrics((p) => ({ ...p, [k]: !p[k] }));
   const setMany = (keys: Key[], v: boolean) => setMetrics((p) => ({ ...p, ...Object.fromEntries(keys.map((k) => [k, v])) }));
@@ -441,22 +462,110 @@ export const MetricsStep: React.FC<Props> = ({ metrics, setMetrics, customQuesti
               <div className="text-sm font-semibold text-slate-900">
                 NPS <span className="font-normal text-slate-500">· Net Promoter Score</span>
               </div>
-              <div className="text-[11px] text-slate-500">"De 0 a 10, o quanto você recomendaria?" · cerca de 10 s</div>
+              <div className="text-[11px] text-slate-500">Pergunta de recomendação, escala de 0 a {npsConfig.scaleMax} · cerca de 10 s</div>
             </div>
             <Switch size="md" on={metrics.nps} onChange={() => toggle('nps')} label="NPS" />
           </div>
           {metrics.nps && (
-            <div className="mx-4 mb-4 flex flex-wrap gap-1">
-              {Array.from({ length: 11 }, (_, n) => (
-                <span
-                  key={n}
-                  className={`w-7 h-7 rounded-md text-[11px] font-semibold flex items-center justify-center ${
-                    n <= 6 ? 'bg-rose-50 text-rose-600' : n <= 8 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
-                  }`}
-                >
-                  {n}
-                </span>
-              ))}
+            <div className="mx-4 mb-4 rounded-lg bg-white border border-slate-200 p-3.5 space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1">Pergunta</label>
+                <textarea
+                  rows={2}
+                  value={npsConfig.question}
+                  onChange={(e) => setNpsConfig({ ...npsConfig, question: e.target.value })}
+                  className="w-full resize-none px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-sm text-slate-900 outline-none"
+                />
+              </div>
+              <div className="flex flex-wrap items-end gap-4">
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-500 mb-1">Escala</div>
+                  <div className="inline-flex rounded-lg bg-slate-100 p-0.5">
+                    {([5, 10] as const).map((mx) => (
+                      <button
+                        key={mx}
+                        type="button"
+                        onClick={() =>
+                          setNpsConfig({
+                            ...npsConfig,
+                            scaleMax: mx,
+                            // se a pergunta ainda é a padrão, acompanha a escala
+                            question: npsConfig.question === npsDefaultQuestion(npsConfig.scaleMax) ? npsDefaultQuestion(mx) : npsConfig.question
+                          })
+                        }
+                        className={`px-3 py-1 rounded-md text-[11px] font-semibold ${npsConfig.scaleMax === mx ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                      >
+                        0 a {mx}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Texto do 0</label>
+                  <input
+                    value={npsConfig.minLabel}
+                    onChange={(e) => setNpsConfig({ ...npsConfig, minLabel: e.target.value })}
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 text-xs text-slate-900 outline-none"
+                  />
+                </div>
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Texto do {npsConfig.scaleMax}</label>
+                  <input
+                    value={npsConfig.maxLabel}
+                    onChange={(e) => setNpsConfig({ ...npsConfig, maxLabel: e.target.value })}
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 text-xs text-slate-900 outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="text-slate-400">Sugestões:</span>
+                {[
+                  ['Nada provável', 'Muito provável'],
+                  ['Muito ruim', 'Muito bom'],
+                  ['Muito insatisfeito', 'Muito satisfeito']
+                ].map(([a, b]) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setNpsConfig({ ...npsConfig, minLabel: a, maxLabel: b })}
+                    className={`px-2 py-1 rounded-md border ${npsConfig.minLabel === a && npsConfig.maxLabel === b ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:border-blue-300'}`}
+                  >
+                    {a} → {b}
+                  </button>
+                ))}
+              </div>
+
+              {/* Prévia como o participante verá */}
+              <div className="rounded-lg bg-slate-50 p-3 space-y-2">
+                <div className="text-[11px] font-semibold text-slate-500">Prévia</div>
+                <div className="text-xs text-slate-800">{npsConfig.question || 'Escreva a pergunta…'}</div>
+                <div className="flex flex-wrap gap-1">
+                  {Array.from({ length: npsConfig.scaleMax + 1 }, (_, n) => {
+                    const c = npsCategory(n, npsConfig.scaleMax);
+                    return (
+                      <span
+                        key={n}
+                        className={`w-8 h-8 rounded-md text-[11px] font-semibold flex items-center justify-center ${
+                          c === 'detrator' ? 'bg-rose-50 text-rose-600' : c === 'neutro' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                        }`}
+                      >
+                        {n}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between text-[10px] text-slate-500" style={{ maxWidth: `${(npsConfig.scaleMax + 1) * 36}px` }}>
+                  <span>0 = {npsConfig.minLabel}</span>
+                  <span>
+                    {npsConfig.scaleMax} = {npsConfig.maxLabel}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {npsConfig.scaleMax === 10
+                    ? 'Classificação oficial: 0–6 detratores, 7–8 neutros, 9–10 promotores.'
+                    : 'Na escala 0 a 5 a nota é convertida para a régua oficial: 0–3 detratores, 4 neutros, 5 promotores.'}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -473,14 +582,77 @@ export const MetricsStep: React.FC<Props> = ({ metrics, setMetrics, customQuesti
             <Switch size="md" on={metrics.sus} onChange={() => toggle('sus')} label="SUS" />
           </div>
           {metrics.sus && (
-            <label className="mx-4 mb-4 flex items-center gap-3 rounded-lg bg-white border border-slate-200 px-3 py-2.5 cursor-pointer">
-              <MessageSquare className="w-4 h-4 text-slate-400" />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-slate-800">Comentário livre no final</div>
-                <div className="text-[11px] text-slate-500">Campo aberto depois do SUS. Também alimenta a Análise qualitativa (IA).</div>
+            <div className="mx-4 mb-4 space-y-2">
+              <label className="flex items-center gap-3 rounded-lg bg-white border border-slate-200 px-3 py-2.5 cursor-pointer">
+                <MessageSquare className="w-4 h-4 text-slate-400" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-slate-800">Comentário livre no final</div>
+                  <div className="text-[11px] text-slate-500">Campo aberto depois do SUS. Também alimenta a Análise qualitativa (IA).</div>
+                </div>
+                <Switch on={metrics.qualitativeComments} onChange={() => toggle('qualitativeComments')} label="Comentário livre no final" />
+              </label>
+
+              <div className="rounded-lg bg-white border border-slate-200">
+                <button type="button" onClick={() => setSusOpen(!susOpen)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left">
+                  <Pencil className="w-4 h-4 text-slate-400" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium text-slate-800 flex items-center gap-2">
+                      Editar as 10 afirmações
+                      {susCustomized > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold">{susCustomized} alterada(s)</span>}
+                    </div>
+                    <div className="text-[11px] text-slate-500">Adapte a linguagem ao seu produto (ex.: "este sistema" → "este app").</div>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${susOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {susOpen && (
+                  <div className="px-3 pb-3 space-y-2">
+                    <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-[11px] text-amber-900">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                      <span>
+                        A nota do SUS depende da ordem e do sentido: itens <b>ímpares são positivos</b> e <b>pares são negativos</b>. Ao reescrever, mantenha o sentido de
+                        cada item. Mudar o texto reduz a comparação com o benchmark (média 68).
+                      </span>
+                    </div>
+                    {susQuestions.map((q, i) => {
+                      const positive = i % 2 === 0;
+                      const changed = q.trim() !== DEFAULT_SUS_QUESTIONS[i];
+                      return (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className="w-6 h-6 mt-1 rounded-md bg-slate-100 text-[11px] font-bold text-slate-600 flex items-center justify-center shrink-0">{i + 1}</span>
+                          <div className="min-w-0 flex-1">
+                            <textarea
+                              rows={1}
+                              value={q}
+                              onChange={(e) => setSusQuestions(susQuestions.map((x, k) => (k === i ? e.target.value : x)))}
+                              className={`w-full resize-none px-3 py-1.5 rounded-lg border text-xs text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 ${
+                                changed ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200 bg-slate-50'
+                              }`}
+                            />
+                            <div className="mt-0.5 flex items-center gap-2 text-[10px]">
+                              <span className={positive ? 'text-emerald-600' : 'text-rose-600'}>{positive ? 'positiva (concordar = melhor)' : 'negativa (concordar = pior)'}</span>
+                              {changed && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSusQuestions(susQuestions.map((x, k) => (k === i ? DEFAULT_SUS_QUESTIONS[i] : x)))}
+                                  className="text-slate-400 hover:text-blue-600"
+                                >
+                                  restaurar
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {susCustomized > 0 && (
+                      <button type="button" onClick={() => setSusQuestions(DEFAULT_SUS_QUESTIONS)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                        Restaurar todas as afirmações oficiais
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              <Switch on={metrics.qualitativeComments} onChange={() => toggle('qualitativeComments')} label="Comentário livre no final" />
-            </label>
+            </div>
           )}
         </div>
 
