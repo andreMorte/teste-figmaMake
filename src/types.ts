@@ -168,6 +168,7 @@ export interface UsabilityTest {
   screenMap?: MappedScreen[]; // catálogo de cenários mapeados do protótipo
   customQuestions?: CustomQuestion[];
   npsConfig?: NpsConfig; // pergunta e escala do NPS editáveis
+  ignoredScreens?: string[]; // cenários de transição removidos do mapeamento (servidor)
   susQuestions?: string[]; // 10 afirmações do SUS (texto editável; ordem e sentido mantidos)
   metricConfig: MetricConfig;
   verifiedAt?: string;

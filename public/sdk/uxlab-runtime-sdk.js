@@ -311,9 +311,12 @@
         }
       }
     }
+    // Sem nenhum texto na tela (transição entre componentes do Figma Make): o único "título" seria
+    // o da aba do navegador, igual em todas as telas. Isso não é um cenário: espera a tela montar.
+    var noContent = !title;
     if (!title) title = clean(document.title) || 'Tela sem título';
     // tela ainda carregando (só textos pequenos de cabeçalho): não identifica cenário
-    var loading = !dialog && blocks.length > 0 && maxScoreOf(blocks) < 15;
+    var loading = !dialog && ((blocks.length > 0 && maxScoreOf(blocks) < 15) || noContent);
 
     var step = dialog ? { label: '', name: '' } : findStepInfo(scope);
     var stepLabel = step.label;

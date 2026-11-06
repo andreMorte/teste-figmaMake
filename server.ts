@@ -104,6 +104,44 @@ function scheduleSave() {
   }, 500);
 }
 
+
+// ---------------------------------------------------------------------------
+// Cenários "vazios" (transição/carregamento): sem título próprio, sem botões, sem campos e
+// sem print. Ex.: "Versao B - Jornada de Empréstimo 0.1" (título da aba) que pisca entre telas.
+// Eles não podem entrar no caminho esperado: viram fim falso de tarefa.
+// ---------------------------------------------------------------------------
+function isEmptyScene(m: any) {
+  return !!m && !m.dialog && !m.thumbnail && !(m.actions || []).length && !(m.inputs || []).length;
+}
+function emptySceneIds(test: any): Set<string> {
+  return new Set([...(test?.ignoredScreens || []), ...(test?.screenMap || []).filter(isEmptyScene).map((m: any) => m.screenId)]);
+}
+function cleanTestPaths(test: any) {
+  const empty = emptySceneIds(test);
+  if (!test || empty.size === 0) return test;
+  test.ignoredScreens = [...empty]; // lembra os ids para limpar eventos e caminhos reais depois
+  test.screenMap = (test.screenMap || []).filter((m: any) => !empty.has(m.screenId));
+  (test.tasks || []).forEach((task: any) => {
+    const steps = (task.expectedPathDetails && task.expectedPathDetails.length === (task.expectedPath || []).length
+      ? task.expectedPathDetails
+      : (task.expectedPath || []).map((id: string) => ({ screenId: id }))) as any[];
+    const kept: any[] = [];
+    let carry: string | undefined;
+    for (const st of steps) {
+      if (empty.has(st.screenId)) {
+        carry = carry || st.trigger; // o clique que levou à transição vale para a próxima tela real
+        continue;
+      }
+      if (kept.length && kept[kept.length - 1].screenId === st.screenId) continue;
+      kept.push(carry && !st.trigger ? { ...st, trigger: carry } : st);
+      carry = undefined;
+    }
+    task.expectedPath = kept.map((k) => k.screenId);
+    if (task.expectedPathDetails) task.expectedPathDetails = kept.filter((k) => k.screenName !== undefined || k.trigger !== undefined);
+  });
+  return test;
+}
+
 function replaceArray(target: any[], source: unknown) {
   if (!Array.isArray(source)) return;
   target.splice(0, target.length, ...source);
@@ -111,6 +149,7 @@ function replaceArray(target: any[], source: unknown) {
 
 function applyDb(db: any) {
   replaceArray(serverTestsStore, db.tests);
+  serverTestsStore.forEach(cleanTestPaths);
   replaceArray(serverParticipantsStore, db.participants);
   replaceArray(serverSessionsStore, db.sessions);
   replaceArray(serverEventsStore, db.events);
@@ -458,6 +497,7 @@ app.post('/api/tests', (req, res) => {
   if (!testData) return res.status(400).json({ error: 'Missing body' });
   const id = testData.id?.trim() || `TEST-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
+  cleanTestPaths(testData);
   const newTest = {
     ...testData,
     id,
@@ -686,7 +726,9 @@ app.post('/api/events', (req, res) => {
     // Caminho real por tarefa: apenas cenários do protótipo (ignora marcadores de tarefa/questionário)
     const PATH_EVENTS = ['SCREEN_VIEW', 'CLICK', 'TASK_START', 'SCREEN_CHANGE', 'PAGE_VIEW', 'BACK', 'RETURN', 'INPUT'];
     const isScreenKey = event.currentScreen && !/^(task-|etapa-\d|figma-frame|sus|survey|end|fim|inicio|start)/.test(event.currentScreen);
-    if (event.taskId && PATH_EVENTS.includes(event.eventType) && isScreenKey) {
+    const testOfEvent = serverTestsStore.find((t) => t.id === session.testId);
+    const isTransient = !!event.currentScreen && emptySceneIds(testOfEvent).has(event.currentScreen);
+    if (event.taskId && PATH_EVENTS.includes(event.eventType) && isScreenKey && !isTransient) {
       if (!session.actualPaths[event.taskId]) {
         session.actualPaths[event.taskId] = [];
       }
@@ -857,9 +899,23 @@ app.get('/api/tests/:id/results', (req, res) => {
   const test = serverTestsStore.find((t) => t.id === id);
   if (!test) return res.status(404).json({ error: 'Test not found' });
 
-  const sessions = serverSessionsStore.filter((s) => s.testId === id && isRealSession(s));
+  const ignored = emptySceneIds(test);
+  const dropTransient = (list: string[] = []) =>
+    list.filter((x) => !ignored.has(x)).filter((x, i, arr) => i === 0 || arr[i - 1] !== x);
+  // telas de transição não entram nos caminhos nem nas métricas (cópia: não altera o que está salvo)
+  const sessions = serverSessionsStore
+    .filter((s) => s.testId === id && isRealSession(s))
+    .map((s) =>
+      ignored.size === 0
+        ? s
+        : {
+            ...s,
+            events: (s.events || []).filter((e: any) => !(e.eventType === 'SCREEN_VIEW' && ignored.has(e.currentScreen))),
+            actualPaths: Object.fromEntries(Object.entries(s.actualPaths || {}).map(([k, v]) => [k, dropTransient(v as string[])]))
+          }
+    );
   const participants = realParticipantsFor(id, sessions);
-  const events = serverEventsStore.filter((e) => e.testId === id);
+  const events = serverEventsStore.filter((e) => e.testId === id && !(e.eventType === 'SCREEN_VIEW' && ignored.has(e.currentScreen)));
   const susResponses = serverSusResponsesStore.filter((s) => s.testId === id);
   const snapshots = serverSnapshotsStore.filter((s) => s.testId === id);
 

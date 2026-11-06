@@ -92,7 +92,8 @@ export interface PipelineStep {
  * ("home", "detalhes"...) nunca aparecem no protótipo: nesses casos a conclusão é manual.
  */
 function isAutoCompletable(test: UsabilityTest, task: TestTask): boolean {
-  const path = task.expectedPath || [];
+  const ignored = new Set(test.ignoredScreens || []);
+  const path = (task.expectedPath || []).filter((id) => !ignored.has(id));
   const finalScreen = path[path.length - 1];
   if (!finalScreen) return false;
   return (test.screenMap || []).some((m) => m.screenId === finalScreen);
@@ -118,6 +119,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const [taskCardSide, setTaskCardSide] = useState<'left' | 'right'>('left');
 
   const completingTaskRef = useRef(false);
+  const lastScreenRef = useRef<string>(""); // último cenário informado pelo SDK (confirma a tela final)
   // Vagas do teste (ex.: participante 3 de 10)
   const [slots, setSlots] = useState<{ limit: number; used: number; nextNumber: number; full: boolean } | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -288,6 +290,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       if (data.type === 'SCREEN_VIEW') {
         const screenName = data.screenName || 'Corretor Online / Porto / Empréstimos e financiamento';
         const screenId = data.screenId || 'SCREEN-001';
+        lastScreenRef.current = screenId;
+        if ((test?.ignoredScreens || []).includes(screenId)) return; // tela de transição: ignora
         setPrototypeScreen(screenName);
         setDetectedScreenId(screenId);
 
@@ -312,9 +316,13 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
           // Chegou ao último cenário mapeado da tarefa -> conclui automaticamente
           const activeTask = test.tasks[currentTaskIndex];
-          const finalScreen = activeTask && isAutoCompletable(test, activeTask) ? activeTask.expectedPath[activeTask.expectedPath.length - 1] : undefined;
+          const activePath = activeTask ? activeTask.expectedPath.filter((id) => !(test.ignoredScreens || []).includes(id)) : [];
+          const finalScreen = activeTask && isAutoCompletable(test, activeTask) ? activePath[activePath.length - 1] : undefined;
           if (journeyStarted && !taskDoneModal && finalScreen && screenId === finalScreen && !completingTaskRef.current) {
-            setTimeout(() => handleCompleteCurrentTaskRef.current(), 900);
+            // confirma depois de 1,2s que a pessoa continua na tela final (telas de passagem não encerram a tarefa)
+            setTimeout(() => {
+              if (lastScreenRef.current === finalScreen) handleCompleteCurrentTaskRef.current();
+            }, 1200);
           }
         }
       }

@@ -452,6 +452,12 @@ export const ScreenMapper: React.FC<ScreenMapperProps> = ({
                         <div className="flex-1 min-w-0">
                           <div className="font-semibold text-slate-900 leading-snug">{st.screenName}</div>
                           <div className="text-[10px] font-mono text-slate-400 truncate">{st.screenId}</div>
+                          {idx === steps.length - 1 && steps.length > 1 && (
+                            <div className="mt-1.5 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1.5 text-[11px] text-emerald-800 leading-snug">
+                              <b>Fim da tarefa:</b> ela termina assim que o participante <b>chega</b> nesta tela. Se ele ainda precisa preencher algo aqui (ex.: CPF), grave até a tela
+                              seguinte.
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center">
                           <button type="button" onClick={() => moveStep(idx, -1)} className="p-0.5 text-slate-400 hover:text-slate-700" title="Subir">
