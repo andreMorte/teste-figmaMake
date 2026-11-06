@@ -353,6 +353,53 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
               <b className="text-rose-600">{helps.length - helpsResolved}</b> não resolveram
             </div>
           </div>
+          {/* Resumo: onde travou, quanto a ajuda resolveu e tempo até avançar */}
+          {(() => {
+            const times = helps.filter((h) => h.secondsToProgress !== undefined).map((h) => h.secondsToProgress as number);
+            const avg = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : undefined;
+            const byScreen = new Map<string, { name: string; n: number; ok: number }>();
+            helps.forEach((h) => {
+              const r = byScreen.get(h.screenId) || { name: h.screenName, n: 0, ok: 0 };
+              r.n += 1;
+              if (h.resolved) r.ok += 1;
+              byScreen.set(h.screenId, r);
+            });
+            const tasksWithHelp = new Set(helps.map((h) => h.taskId)).size;
+            return (
+              <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 border-b border-slate-100 text-xs">
+                <div>
+                  <div className="text-slate-500">Ajuda resolveu</div>
+                  <div className="text-lg font-semibold text-slate-900">{Math.round((helpsResolved / helps.length) * 100)}%</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Tempo até avançar</div>
+                  <div className="text-lg font-semibold text-slate-900">{avg !== undefined ? `${avg}s` : '—'}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Tarefas com ajuda</div>
+                  <div className="text-lg font-semibold text-slate-900">
+                    {tasksWithHelp} de {view.tasks.length}
+                  </div>
+                </div>
+                <div className="col-span-2 md:col-span-1">
+                  <div className="text-slate-500">Onde travou</div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {[...byScreen.values()]
+                      .sort((a, b) => b.n - a.n)
+                      .map((r) => (
+                        <span
+                          key={r.name}
+                          className={`px-2 py-0.5 rounded-md font-medium ${r.ok < r.n / 2 ? 'bg-rose-50 text-rose-700' : 'bg-violet-50 text-violet-700'}`}
+                          title={`${r.n} pedido(s), ${r.ok} resolvido(s)`}
+                        >
+                          {r.name} · {r.n}×
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           <ol className="divide-y divide-slate-100">
             {helps.map((h, i) => (
               <li key={i} className="px-5 py-3.5 grid grid-cols-1 md:grid-cols-[150px_minmax(0,1fr)_220px] gap-3 text-xs">
