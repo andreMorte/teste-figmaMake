@@ -373,7 +373,7 @@ async function runGemini(prompt: string) {
 
 async function runClaude(prompt: string) {
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(`${process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'}/v1/messages`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
@@ -546,13 +546,13 @@ function localAnalysis(items: QualItem[], participants: QualParticipantContext[]
 // ---------------------------------------------------------------------------
 // Texto curto (ajuda da IA para o participante em testes não moderados)
 // ---------------------------------------------------------------------------
-export async function aiText(prompt: string, budgetMs = 25000): Promise<{ text: string; model: string }> {
+export async function aiText(prompt: string, budgetMs = 25000, temperature = 0.4): Promise<{ text: string; model: string }> {
   const engine = aiEngine();
   if (!engine) throw new Error('IA não configurada');
   if (engine === 'claude') {
     const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
     const res = await withTimeout(
-      fetch('https://api.anthropic.com/v1/messages', {
+      fetch(`${process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'}/v1/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model, max_tokens: 700, messages: [{ role: 'user', content: prompt }] })
@@ -581,7 +581,7 @@ export async function aiText(prompt: string, budgetMs = 25000): Promise<{ text: 
           model,
           contents: prompt,
           config: {
-            temperature: 0.4,
+            temperature,
             maxOutputTokens: 700,
             ...(/^gemini-2\.5-flash(-lite)?$/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
           } as any

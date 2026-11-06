@@ -1323,45 +1323,129 @@ app.post('/api/assist', async (req, res) => {
   const screenText = String(screen?.text || '').slice(0, 3500);
   const n = Number(helpCount) || 1;
 
+  // ---- Respostas determinísticas (sempre baseadas no que está na tela e no mapeamento) ----
+  const norm = (t: string) =>
+    String(t || '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  const cleanLabel = (f: any) => String(f.label || f.placeholder || f.type || 'campo').replace(/\s*Selecione\s*$/i, '').trim();
+  const exampleFor = (label: string): string => {
+    const l = norm(label);
+    if (/cpf|cnpj|documento/.test(l)) return 'ex.: 123.456.789-09';
+    if (/celular|telefone|fone|whats/.test(l)) return 'ex.: (11) 98765-4321';
+    if (/e ?mail/.test(l)) return 'ex.: maria@exemplo.com';
+    if (/cep/.test(l)) return 'ex.: 01310-100';
+    if (/data|nascimento/.test(l)) return 'ex.: 15/03/1985';
+    if (/valor|renda|preco|salario|r \$|montante|credito/.test(l)) return 'ex.: R$ 250.000,00';
+    if (/numero|n /.test(l)) return 'ex.: 120';
+    if (/nome/.test(l)) return 'ex.: Maria Souza';
+    if (/endereco|rua|logradouro/.test(l)) return 'ex.: Av. Paulista';
+    if (/bairro/.test(l)) return 'ex.: Bela Vista';
+    if (/cidade|municipio/.test(l)) return 'ex.: São Paulo';
+    if (/complemento/.test(l)) return 'ex.: apto 12 (opcional se não houver)';
+    if (/prazo|meses|parcela/.test(l)) return 'ex.: 120';
+    return '';
+  };
+  const q = String(question || '');
+  const wantsFill = /preench|colocar|coloco|dados|valor|campo|digit|informar|escrever|qual .*(cpf|cep|numero)/i.test(q);
+  const pending = fields.filter((f) => !f.locked && (f.filled === false || (f.type === 'lista' && !f.selected) || f.invalid));
+  const fillLines = (list: any[]) =>
+    list.slice(0, 6).map((f) => {
+      const label = cleanLabel(f);
+      if (f.type === 'lista') return `- **${label}**: escolha uma opção${f.options?.length ? ` (${f.options.slice(0, 5).join(', ')}${f.options.length > 5 ? '…' : ''})` : ''}`;
+      const ex = exampleFor(label);
+      return `- **${label}**${ex ? `: ${ex}` : ''}`;
+    });
+  const nextLine = isTaskEnd
+    ? 'Você já está no fim desta etapa.'
+    : next?.trigger
+    ? `Depois clique em **${next.trigger}**.`
+    : '';
   const fallback = () => {
-    if (errors.length) return `A tela mostra um aviso: “${errors[0]}”. Corrija esse ponto e tente avançar de novo.`;
-    const empty = fields.filter((f) => f.filled === false || (f.type === 'lista' && !f.selected));
-    if (empty.length) {
-      const names = empty.slice(0, 4).map((f) => String(f.label || f.placeholder).replace(/\s*Selecione\s*$/i, '')).join(', ');
-      return `Ainda faltam campos nesta tela: ${names}. Preencha (pode usar dados de exemplo) e depois clique em ${next?.trigger ? `“${next.trigger}”` : 'avançar'}.`;
-    }
-    if (next?.trigger) return `Procure na tela a opção “${next.trigger}” e clique nela para continuar.`;
-    return `Releia a tarefa: “${task?.instruction || task?.title || ''}”. Procure na tela uma opção relacionada a isso.`;
+    if (errors.length) return `A tela mostra o aviso: “${errors[0]}”. Corrija esse ponto e tente de novo.`;
+    if ((wantsFill || !next?.trigger) && pending.length) return [`Nesta tela, preencha:`, ...fillLines(pending), nextLine].filter(Boolean).join('\n');
+    if (next?.trigger) return `Clique em **${next.trigger}** para ir para ${nameOf(next.screenId)}.`;
+    if (wantsFill && fields.length) return [`Os campos desta tela são:`, ...fillLines(fields)].join('\n');
+    if (!screen) return 'Não consegui ler a tela agora. Releia a tarefa e procure na tela uma opção relacionada a ela.';
+    return `Releia a tarefa: “${task?.instruction || task?.title || ''}”. Procure nesta tela uma opção relacionada a ela.`;
   };
 
-  if (!aiEngine()) return res.json({ answer: fallback(), engine: 'local' });
+  if (!aiEngine()) return res.json({ answer: fallback(), engine: 'local', grounded: true });
 
-  const prompt = `Você é o assistente de ajuda de um protótipo digital. Uma pessoa está tentando cumprir uma tarefa e pediu ajuda.
+  // ---- Checagem de veracidade: tudo o que a IA citar precisa existir na tela ----
+  const allowed = norm(
+    [screenText, buttons.join(' '), fields.map((f) => `${f.label || ''} ${f.placeholder || ''} ${(f.options || []).join(' ')}`).join(' '), next?.trigger || '', task?.title || '', task?.instruction || ''].join(' ')
+  );
+  const cited = (answer: string) => {
+    const out: string[] = [];
+    const re = /\*\*(.+?)\*\*|[“"]([^”"]{2,60})[”"]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(answer))) out.push((m[1] || m[2] || '').trim());
+    return out;
+  };
+  const isExample = (t: string) => /^ex\.?:|exemplo|\d{3}\.\d{3}|@|\(\d{2}\)|r\$\s?\d/i.test(t);
+  const problems = (answer: string): string[] => {
+    const bad = cited(answer).filter((c) => {
+      if (isExample(c)) return false;
+      const n = norm(c);
+      return n.length > 1 && !allowed.includes(n);
+    });
+    const issues = bad.map((b) => `"${b}" não existe nesta tela`);
+    const navQuestion = !wantsFill && /onde|clic|cliq|como|continu|avan|comec|depois|proximo|nao sei|perdid|o que fa/i.test(norm(q));
+    if (navQuestion && next?.trigger && !isTaskEnd && !norm(answer).includes(norm(next.trigger))) issues.push(`a resposta não indicou o passo correto ("${next.trigger}")`);
+    return issues;
+  };
+
+  const basePrompt = `Você é o assistente de ajuda de um protótipo digital. Uma pessoa está tentando cumprir uma tarefa e pediu ajuda.
 Responda em português do Brasil, falando direto com a pessoa ("você"), em linguagem simples.
 
-Como responder:
-- Use SEMPRE o conteúdo real da tela abaixo (textos, campos, opções, botões). Nunca diga que "não há informação" se ela estiver nos textos ou campos.
-- Se a pergunta for sobre o que preencher: explique cada campo relevante em uma linha e dê um EXEMPLO de valor fictício no formato esperado (ex.: CPF 123.456.789-09, celular (11) 98765-4321, e-mail maria@exemplo.com, CEP 01310-100, datas dd/mm/aaaa, valores em R$). Para listas, cite as opções que existem. Respeite regras que aparecem no texto da tela (valor mínimo, prazos, limites) e mencione-as.
-- Se houver erro visível, explique como corrigir.
-- ${n <= 1 ? 'É o primeiro pedido: oriente sem fazer pela pessoa, mas a dica precisa levar ao próximo passo correto.' : 'A pessoa já pediu ajuda antes: seja direto, diga exatamente o que preencher e onde clicar.'}
-- Ignore menus globais do topo e da lateral (ex.: Cálculos, Produtos, Serviços, Propostas) a menos que a tarefa peça por eles. Nunca sugira um caminho diferente do próximo passo correto.
-- Não fale de "teste", "pesquisa", "métricas" nem de tarefas futuras. Não invente campos ou botões que não estão na lista.
-- Formato: no máximo 6 linhas. Pode usar "- " para listar campos e **negrito** para nomes de botões/campos.
+REGRAS DE VERACIDADE (obrigatórias):
+- Use SOMENTE as informações abaixo: tarefa, campos, botões, texto da tela e próximo passo. Elas são a única fonte de verdade.
+- Nunca invente botões, campos, telas, regras, valores ou prazos. Só cite nomes que aparecem exatamente nas listas ou no texto.
+- Se a pergunta pede algo que não está nas informações, diga com clareza que essa informação não aparece nesta tela e oriente o próximo passo.
+- Exemplos de preenchimento são permitidos só para campos que existem, como formato fictício (ex.: CPF 123.456.789-09, celular (11) 98765-4321, CEP 01310-100, datas dd/mm/aaaa). Regras numéricas (mínimo, prazo, limite) só se estiverem no texto da tela.
+- Para dúvidas de navegação, indique o próximo passo correto pelo nome exato do botão. Nunca sugira outro caminho nem menus globais (Cálculos, Produtos, Serviços, Propostas etc.).
+- Não fale de "teste", "pesquisa", "métricas" nem de tarefas futuras.
+- Formato: no máximo 6 linhas. Use "- " para listar campos e **negrito** apenas para nomes de botões/campos que existem.
 
 Tarefa atual: ${task?.title || ''}${task?.instruction ? ` — ${task.instruction}` : ''}
 Tela atual: ${screen?.screenName || screenName || title || curId || 'desconhecida'}${screen?.dialog ? ' (janela/modal aberta)' : ''}
-Próximo passo correto (use para orientar, não cite com estas palavras): ${nextHint || 'a pessoa está fora do fluxo; ajude a voltar para o início da tarefa'}
+Próximo passo correto: ${nextHint || 'a pessoa está fora do fluxo; ajude a voltar para o início da tarefa'}
 Campos da tela:
 ${fieldLines.join('\n') || '- nenhum campo de preenchimento visível'}
 Botões e opções clicáveis: ${buttons.join(' | ') || 'não informado'}
-${errors.length ? `Avisos/erros visíveis: ${errors.join(' | ')}\n` : ''}Texto visível da tela (na ordem): ${screenText || 'não disponível'}
-${Array.isArray(history) && history.length ? `Conversa anterior:\n${history.slice(-4).map((h: any) => `Pessoa: ${h.q}\nAssistente: ${h.a}`).join('\n')}\n` : ''}Pergunta da pessoa: ${String(question || 'Não sei o que fazer agora.').slice(0, 400)}`;
+${errors.length ? `Avisos/erros visíveis: ${errors.join(' | ')}\n` : ''}Texto visível da tela (na ordem): ${screenText || 'não disponível (não foi possível ler a tela)'}
+${Array.isArray(history) && history.length ? `Conversa anterior:\n${history.slice(-4).map((h: any) => `Pessoa: ${h.q}\nAssistente: ${h.a}`).join('\n')}\n` : ''}Pergunta da pessoa: ${q.slice(0, 400) || 'Não sei o que fazer agora.'}`;
+
   try {
-    const { text, model } = await aiText(prompt);
-    return res.json({ answer: text.replace(/^["“]|["”]$/g, '').slice(0, 1200), engine: 'ia', model });
+    let { text, model } = await aiText(basePrompt, 18000, 0.2);
+    let answer = text.replace(/^["“]|["”]$/g, '').trim();
+    let issues = problems(answer);
+    let engine = 'ia';
+    if (issues.length) {
+      // uma segunda tentativa, apontando o que estava errado
+      const retry = await aiText(`${basePrompt}\n\nSua resposta anterior foi recusada porque: ${issues.join('; ')}. Responda de novo seguindo as regras de veracidade.`, 12000, 0.1).catch(() => null);
+      if (retry) {
+        const a2 = retry.text.replace(/^["“]|["”]$/g, '').trim();
+        if (!problems(a2).length) {
+          answer = a2;
+          model = retry.model;
+          issues = [];
+          engine = 'ia-revisada';
+        }
+      }
+    }
+    if (issues.length) {
+      console.warn('[IA] resposta descartada por citar algo fora da tela:', issues.join('; '));
+      return res.json({ answer: fallback(), engine: 'local', grounded: true, discarded: issues });
+    }
+    return res.json({ answer: answer.slice(0, 1200), engine, model, grounded: true });
   } catch (err: any) {
     console.warn('[IA] ajuda ao participante falhou:', String(err?.message || err).slice(0, 160));
-    return res.json({ answer: fallback(), engine: 'local' });
+    return res.json({ answer: fallback(), engine: 'local', grounded: true });
   }
 });
 
