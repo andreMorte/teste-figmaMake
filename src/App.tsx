@@ -7,7 +7,7 @@ import { ParticipantDetail } from './components/participants/ParticipantDetail';
 import { QualitativeAnalysis } from './components/analytics/QualitativeAnalysis';
 import { UsabilityTest } from './types';
 import { getTests, deleteTest } from './services/dataService';
-import { FlaskConical, Plus, ChevronRight } from 'lucide-react';
+import { FlaskConical, Plus, ChevronRight, LayoutList } from 'lucide-react';
 
 type View = 'home' | 'create-test' | 'test-detail' | 'participant' | 'qualitative' | 'runner';
 
@@ -58,7 +58,16 @@ export default function App() {
 
   const goHome = () => {
     setCurrentView('home');
+    setLeaveConfirm(false);
     refreshTests();
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
+  };
+
+  // Voltar para a lista de testes de qualquer página. Na criação, confirma antes (o teste ainda não foi salvo).
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const requestHome = () => {
+    if (currentView === 'create-test') setLeaveConfirm(true);
+    else goHome();
   };
 
   const openTest = (id: string) => {
@@ -95,7 +104,7 @@ export default function App() {
       {/* Barra superior mínima: marca, onde estou, ação principal */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-3">
-          <button type="button" onClick={goHome} className="flex items-center gap-2 shrink-0" title="Ir para os testes">
+          <button type="button" onClick={requestHome} className="flex items-center gap-2 shrink-0" title="Ir para os testes">
             <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center">
               <FlaskConical className="w-4 h-4" />
             </span>
@@ -105,7 +114,7 @@ export default function App() {
           {/* Caminho atual (heurística: visibilidade e liberdade para voltar) */}
           <nav className="flex items-center gap-1 text-sm text-slate-500 min-w-0">
             <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
-            <button type="button" onClick={goHome} className={`hover:text-slate-900 ${currentView === 'home' ? 'text-slate-900 font-medium' : ''}`}>
+            <button type="button" onClick={requestHome} className={`hover:text-slate-900 ${currentView === 'home' ? 'text-slate-900 font-medium' : ''}`}>
               Testes
             </button>
             {currentView === 'create-test' && (
@@ -140,8 +149,19 @@ export default function App() {
             )}
           </nav>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
             {!serverOnline && <span className="text-xs text-rose-600 font-medium">Servidor indisponível</span>}
+            {currentView !== 'home' && (
+              <button
+                type="button"
+                onClick={requestHome}
+                className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"
+                title="Voltar para a lista de todos os testes"
+                aria-label="Todos os testes"
+              >
+                <LayoutList className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Todos os testes</span>
+              </button>
+            )}
             {currentView !== 'create-test' && currentView !== 'home' && (
               <button
                 type="button"
@@ -228,6 +248,25 @@ export default function App() {
           />
         )}
       </main>
+
+      {leaveConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4" onClick={() => setLeaveConfirm(false)}>
+          <div role="dialog" aria-modal="true" className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="space-y-1">
+              <div className="text-base font-semibold text-slate-900">Sair da criação do teste?</div>
+              <p className="text-sm text-slate-500">O teste ainda não foi publicado. O que você preencheu até agora será perdido.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" autoFocus onClick={() => setLeaveConfirm(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
+                Continuar criando
+              </button>
+              <button type="button" onClick={goHome} className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800">
+                Sair sem salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
