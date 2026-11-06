@@ -498,7 +498,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
             { step: 1, label: 'Informações' },
             { step: 2, label: 'Tarefas & Caminho' },
             { step: 3, label: 'Métricas' },
-            { step: 4, label: 'Publicação & Validação' }
+            { step: 4, label: 'Revisar e publicar' }
           ].map((item, idx) => (
             <React.Fragment key={item.step}>
               <div
@@ -1059,10 +1059,10 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
           <div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-blue-600" />
-              <span>Etapa 4 — Protótipo Navegável & Publicação do Teste</span>
+              <span>Etapa 4 — Revisar e publicar</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-              Informe o link do protótipo que os participantes navegarão e publique para gerar o link do teste de usabilidade.
+              Confira o resumo do teste e publique para gerar o link dos participantes.
             </p>
           </div>
 
@@ -1078,7 +1078,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                     Link do Teste de Usabilidade Gerado com Sucesso!
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
-                    Seu teste está ativo e vinculado ao protótipo navegável. Ao acessar o link gerado abaixo, o participante navegará no protótipo fornecido enquanto a plataforma registra as tarefas, cliques, tempo e avaliação SUS.
+                    Seu teste está ativo. Ao acessar o link abaixo, o participante navegará no protótipo fornecido enquanto a plataforma registra as tarefas, cliques, tempo e avaliação SUS.
                   </p>
                 </div>
               </div>
@@ -1113,50 +1113,8 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 </div>
               </div>
 
-              {/* Direct Prototype URL Box (Protótipo Validado) */}
-              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-800 text-xs font-semibold flex items-center gap-1.5">
-                    <Globe className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Protótipo Validado (Link Exato Cadastrado):</span>
-                  </span>
-                  <span className="text-[11px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md font-semibold border border-purple-200">
-                    Protótipo Real
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={createdTestResult.prototypeUrl}
-                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-purple-700 text-xs font-mono select-all outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => copyProtoDirectLink(createdTestResult.prototypeUrl)}
-                    className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs shrink-0"
-                  >
-                    {copiedProtoDirect ? <Check className="w-4 h-4 stroke-[2.5]" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedProtoDirect ? 'URL Copiada!' : 'Copiar Link do Protótipo'}</span>
-                  </button>
-                </div>
-              </div>
-
               {/* Direct Actions: Run Now vs Open Prototype vs Open Test */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
-                {/* 1. Abrir o protótipo real em nova aba */}
-                <a
-                  href={createdTestResult.prototypeUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="py-3 px-4 rounded-xl bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 hover:border-purple-300 font-semibold flex items-center justify-center gap-2 transition-colors shadow-xs text-center"
-                  title="Abre diretamente o protótipo do Figma ou o link colocado e validado em uma nova aba"
-                >
-                  <ExternalLink className="w-4 h-4 text-purple-600 shrink-0" />
-                  <span>Abrir Protótipo em Nova Aba</span>
-                </a>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
                 {/* 2. Executar o fluxo agora dentro da plataforma */}
                 <button
                   type="button"
@@ -1183,19 +1141,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
 
               {/* Forward to Results Dashboard */}
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 pt-3 border-t border-emerald-200/80">
-                <div className="text-xs text-slate-600 flex items-center gap-1.5 flex-wrap">
-                  <span>Protótipo vinculado:</span>
-                  <a
-                    href={createdTestResult.prototypeUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-blue-600 hover:text-blue-700 underline font-medium flex items-center gap-1 truncate max-w-xs sm:max-w-md"
-                    title={createdTestResult.prototypeUrl}
-                  >
-                    <span>{createdTestResult.prototypeUrl}</span>
-                    <ExternalLink className="w-3 h-3 shrink-0" />
-                  </a>
-                </div>
+                <div className="text-xs text-slate-600">Envie o link aos participantes e acompanhe os resultados no painel.</div>
                 <button
                   type="button"
                   onClick={() => onSuccess(createdTestResult)}
@@ -1207,19 +1153,87 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
             </div>
           ) : (
             <>
-              {/* Summary Review Card */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/70 border border-slate-200 text-xs space-y-3">
-                <h3 className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
-                  Resumo da Configuração
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-600">
-                  <div><strong className="text-slate-800">Nome:</strong> {name}</div>
-                  <div><strong className="text-slate-800">Produto:</strong> {productName}</div>
-                  <div><strong className="text-slate-800">Tarefas:</strong> {tasks.length} cadastradas</div>
-                  <div><strong className="text-slate-800">SUS Ativado:</strong> {metrics.sus ? 'Sim (10 perguntas)' : 'Não'}</div>
-                  <div><strong className="text-slate-800">Pesquisador:</strong> {researcherName}</div>
-                  <div><strong className="text-slate-800">Participantes previstos:</strong> {participantLimit} clientes</div>
-                  <div><strong className="text-slate-800">Caminhos Esperados:</strong> {tasks.map((t) => t.expectedPath.length).join(' + ')} etapas</div>
+              {/* Resumo organizado do que foi configurado (sem a antiga verificação técnica do protótipo) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="sm:col-span-2 p-4 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Teste</div>
+                  <div className="text-sm font-semibold text-slate-900">{name || 'Sem nome'}</div>
+                  <div className="text-slate-500">
+                    {productName || 'Produto não informado'} · {researcherName || 'Pesquisador não informado'}
+                  </div>
+                </div>
+                <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Participantes</div>
+                  <div className="text-sm font-semibold text-slate-900">{participantLimit} previstos</div>
+                  <div className="text-slate-500">o link fecha ao completar</div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 text-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Tarefas ({tasks.length})</div>
+                  <button type="button" onClick={() => setCurrentStep(2)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                    Editar tarefas
+                  </button>
+                </div>
+                <ol className="space-y-2">
+                  {tasks.map((t, i) => {
+                    const ok = !undetectable.includes(i);
+                    const lastId = t.expectedPath[t.expectedPath.length - 1];
+                    const endName = screenMap.find((m) => m.screenId === lastId)?.screenName;
+                    return (
+                      <li key={t.id} className="flex items-start gap-3">
+                        <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-slate-900">{t.title}</div>
+                          <div className="text-slate-500">{t.expectedPath.length} tela(s) no caminho esperado</div>
+                        </div>
+                        <span
+                          className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold ${
+                            ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                          }`}
+                          title={ok ? 'A tarefa termina sozinha nesta tela' : 'Sem tela final mapeada'}
+                        >
+                          {ok ? <Check className="w-3 h-3 stroke-[3]" /> : <Info className="w-3 h-3" />}
+                          {ok ? `Termina em: ${endName || 'próxima tarefa'}` : 'Sem fim mapeado'}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 text-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">O que será medido</div>
+                  <button type="button" onClick={() => setCurrentStep(3)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                    Editar métricas
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    {
+                      label: 'Métricas automáticas',
+                      value: `${(['taskSuccessRate', 'completionRate', 'abandonmentRate', 'taskDuration', 'screenDuration', 'clickCount', 'idealPath', 'pathDeviation', 'mostUsedPath', 'backReturns', 'clickZoning', 'errorClicks'] as const).filter((k) => metrics[k]).length} de 12`,
+                      on: true
+                    },
+                    {
+                      label: 'Perguntas',
+                      value: metrics.customQuestions === false ? 'Desligadas' : `${customQuestions.filter((q) => q.question.trim()).length} pergunta(s)`,
+                      on: metrics.customQuestions !== false
+                    },
+                    { label: 'NPS', value: metrics.nps ? `Escala 0 a ${npsConfig.scaleMax}` : 'Desligado', on: metrics.nps },
+                    {
+                      label: 'SUS',
+                      value: metrics.sus ? (metrics.qualitativeComments ? '10 itens + comentário' : '10 itens') : 'Desligado',
+                      on: metrics.sus
+                    }
+                  ].map((c) => (
+                    <div key={c.label} className={`p-3 rounded-xl border ${c.on ? 'border-blue-100 bg-blue-50/50' : 'border-slate-200 bg-slate-50 text-slate-400'}`}>
+                      <div className="text-[11px] text-slate-500">{c.label}</div>
+                      <div className={`text-sm font-semibold ${c.on ? 'text-slate-900' : 'text-slate-400'}`}>{c.value}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -1238,310 +1252,6 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   </button>
                 </div>
               )}
-
-              {/* Prototype Configuration Section */}
-              <div className="p-5 sm:p-6 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-4 text-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-900 font-bold">
-                    <Globe className="w-4 h-4 text-blue-600" />
-                    <span>Link do Protótipo Navegável (Figma ou Web Deploy)</span>
-                  </div>
-                  {isFigmaUrl(prototypeUrl) ? (
-                    <span className="px-2.5 py-1 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-semibold">
-                      Figma Navegável Detectado
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-semibold">
-                      Protótipo Web
-                    </span>
-                  )}
-                </div>
-
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Cole aqui o link compartilhável do seu protótipo no Figma (ex: <code className="text-blue-600 font-mono">https://www.figma.com/proto/...</code> ou link de arquivo navegável) ou a URL do seu protótipo publicado no Figma Make / Web.
-                </p>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-slate-700 font-semibold">
-                      1. URL do Protótipo Navegável (Figma ou Web Deploy):
-                    </label>
-                    {prototypeUrl.trim() && (
-                      <a
-                        href={prototypeUrl.trim()}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1 hover:underline"
-                        title="Abrir este link diretamente em uma nova aba do navegador"
-                      >
-                        <span>Abrir URL em Nova Aba</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={prototypeUrl}
-                    onChange={(e) => {
-                      setPrototypeUrl(e.target.value);
-                      setVerificationPassed(null);
-                    }}
-                    placeholder="https://www.figma.com/proto/EXEMPLO/Meu-App-Navegavel ou http://localhost:3000/api/mock/figma-valid"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-900 text-xs font-mono outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-colors"
-                  />
-                </div>
-
-                {/* Identifiers Grid: Test ID & Tracking ID */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                  {/* Test ID Field */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-slate-700 font-semibold flex items-center gap-1.5">
-                        <Hash className="w-3.5 h-3.5 text-blue-600" />
-                        <span>2. Test ID (Identificador do Teste):</span>
-                      </label>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTestId('TEST-U92DU');
-                            setVerificationPassed(null);
-                          }}
-                          className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline font-semibold"
-                        >
-                          TEST-U92DU
-                        </button>
-                        <span className="text-slate-300">|</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const rand = 'TEST-' + Math.random().toString(36).substring(2, 7).toUpperCase();
-                            setTestId(rand);
-                            setVerificationPassed(null);
-                          }}
-                          className="text-[11px] text-slate-500 hover:text-slate-700 hover:underline"
-                        >
-                          Novo ID
-                        </button>
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                        <Hash className="w-4 h-4" />
-                      </div>
-                      <input
-                        type="text"
-                        value={testId}
-                        onChange={(e) => {
-                          setTestId(e.target.value.trim());
-                          setVerificationPassed(null);
-                        }}
-                        placeholder="ex: TEST-U92DU"
-                        className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-900 text-xs font-mono uppercase outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-colors"
-                      />
-                    </div>
-                    <p className="text-[11px] text-slate-500">
-                      Esperado no protótipo: <code className="text-blue-700 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">testId: "{testId || 'TEST-...'}"</code>
-                    </p>
-                  </div>
-
-                  {/* Tracking ID Field */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-slate-700 font-semibold flex items-center gap-1.5">
-                        <Activity className="w-3.5 h-3.5 text-blue-600" />
-                        <span>3. Tracking ID (Identificador de Telemetria):</span>
-                      </label>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTrackingId('UX-QK8UY');
-                            setVerificationPassed(null);
-                          }}
-                          className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline font-semibold"
-                        >
-                          UX-QK8UY
-                        </button>
-                        <span className="text-slate-300">|</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTrackingId('UX-DIXD8');
-                            setVerificationPassed(null);
-                          }}
-                          className="text-[11px] text-amber-600 hover:text-amber-700 hover:underline font-semibold"
-                          title="Simular teste com trackingId diferente do bundle"
-                        >
-                          UX-DIXD8 (Divergente)
-                        </button>
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                        <Activity className="w-4 h-4" />
-                      </div>
-                      <input
-                        type="text"
-                        value={trackingId}
-                        onChange={(e) => {
-                          setTrackingId(e.target.value.trim());
-                          setVerificationPassed(null);
-                        }}
-                        placeholder="ex: UX-QK8UY"
-                        className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-900 text-xs font-mono uppercase outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-colors"
-                      />
-                    </div>
-                    <p className="text-[11px] text-slate-500">
-                      Esperado no protótipo: <code className="text-blue-700 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">trackingId: "{trackingId || 'UX-...'}"</code>
-                    </p>
-                  </div>
-                </div>
-
-                {/* SDK Code Snippet Preview */}
-                <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-700 font-semibold flex items-center gap-1.5">
-                      <Code className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Snippet de Instrumentação para o Protótipo:</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={copySdkSnippet}
-                      className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-blue-700 text-xs font-semibold flex items-center gap-1 border border-slate-200 transition-colors"
-                    >
-                      {copiedSnippet ? <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedSnippet ? 'Copiado!' : 'Copiar Código'}</span>
-                    </button>
-                  </div>
-                  <pre className="p-3 rounded-lg bg-slate-900 text-blue-200 font-mono text-xs overflow-x-auto">
-                    <code>{`UXLab.init({\n  testId: "${testId || 'TEST-U92DU'}",\n  trackingId: "${trackingId || 'UX-QK8UY'}"\n});`}</code>
-                  </pre>
-                </div>
-
-                {/* Quick Presets */}
-                <div className="space-y-1.5">
-                  <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider block">
-                    Ou selecione um exemplo rápido para testar agora:
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrototypeUrl('http://localhost:3000/api/mock/figma-valid');
-                        setTestId('TEST-U92DU');
-                        setTrackingId('UX-QK8UY');
-                        setVerificationPassed(null);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs transition-colors flex items-center gap-1.5 font-semibold"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Protótipo Figma Make / SDK (Válido TEST-U92DU & UX-QK8UY)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrototypeUrl('http://localhost:3000/api/mock/figma-valid');
-                        setTestId('TEST-U92DU');
-                        setTrackingId('UX-DIXD8');
-                        setVerificationPassed(null);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs transition-colors font-medium"
-                      title="Testa a verificação com trackingId divergente"
-                    >
-                      Simular Divergência (UX-DIXD8)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrototypeUrl('https://www.figma.com/proto/sample-prototype/App-Fintech?scaling=scale-down');
-                        setVerificationPassed(null);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs transition-colors font-medium"
-                    >
-                      Figma App Exemplo (figma.com/proto)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrototypeUrl('');
-                        setVerificationPassed(null);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-700 border border-slate-200 text-xs transition-colors"
-                    >
-                      Limpar campo de URL
-                    </button>
-                  </div>
-                </div>
-
-                {/* Technical Handshake Verifier */}
-                <div className="pt-3 border-t border-slate-200/80 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-slate-800 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                        <span>Verificação Técnica em Tempo Real</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Inspeciona o protótipo e bundles .js confirmando se os identificadores testId ({testId}) e trackingId ({trackingId}) batem exatamente.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleVerifyPrototype}
-                      disabled={isVerifying || !prototypeUrl || !testId || !trackingId}
-                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-40 shrink-0 shadow-xs"
-                    >
-                      {isVerifying ? (
-                        <>
-                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          <span>Verificando...</span>
-                        </>
-                      ) : (
-                        <>
-                          <ShieldCheck className="w-4 h-4" />
-                          <span>Testar Conexão do Protótipo</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {verificationPassed !== null && (
-                    <div
-                      className={`p-3.5 rounded-xl border text-xs ${
-                        verificationPassed
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          : 'bg-amber-50 text-amber-800 border-amber-200'
-                      }`}
-                    >
-                      <div className="font-bold text-xs mb-0.5 flex items-center gap-1.5">
-                        {verificationPassed ? (
-                          <>
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 stroke-[2.5]" />
-                            <span>Instrumentação Validada com Sucesso</span>
-                          </>
-                        ) : (
-                          <>
-                            <Info className="w-4 h-4 text-amber-600" />
-                            <span>Aviso de Verificação</span>
-                          </>
-                        )}
-                      </div>
-                      <p className="text-[11px] leading-relaxed">
-                        {verificationFeedback ||
-                          (isFigmaUrl(prototypeUrl)
-                            ? 'Protótipo Figma válido! Será carregado com o player interativo de telemetria.'
-                            : 'Protótipo conectado com sucesso.')}
-                      </p>
-                      {!verificationPassed && (
-                        <div className="mt-2 text-[11px] text-amber-900 bg-white/80 p-2.5 rounded-lg border border-amber-200">
-                          Dica: Se o protótipo compilado possui <code className="text-blue-700 font-mono">testId: "TEST-U92DU"</code> e <code className="text-blue-700 font-mono">trackingId: "UX-QK8UY"</code>, certifique-se de preencher esses mesmos valores nos campos 2 e 3 acima ou clique em <strong>"TEST-U92DU"</strong> e <strong>"UX-QK8UY"</strong>.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
 
               {/* Publication Buttons */}
               <div className="flex justify-between gap-3 pt-4 border-t border-slate-100">
