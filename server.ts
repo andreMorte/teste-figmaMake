@@ -1277,7 +1277,7 @@ function scheduleQualitative(testId: string) {
 // Ajuda da IA para o participante (testes não moderados).
 // Recebe a tarefa e o que está na tela; devolve uma dica curta, sem fazer pelo participante.
 app.post('/api/assist', async (req, res) => {
-  const { testId, taskId, screenId, screenName, title, stepLabel, actions, inputs, question, history, helpCount } = req.body || {};
+  const { testId, taskId, screenId, screenName, title, stepLabel, actions, inputs, screen, question, history, helpCount } = req.body || {};
   const test = serverTestsStore.find((t) => t.id === testId);
   if (!test) return res.status(404).json({ error: 'Test not found' });
   if (test.moderation === 'moderated') return res.status(403).json({ error: 'Teste moderado: ajuda da IA desativada' });
@@ -1290,36 +1290,75 @@ app.post('/api/assist', async (req, res) => {
     const m = String(label || '').match(/(\d+)\s*de\s*(\d+)/) || String(id || '').match(/(\d+)-de-(\d+)/);
     return m ? `${m[1]}-${m[2]}` : '';
   };
-  let pos = steps.findIndex((st) => st.screenId === screenId);
-  if (pos < 0 && stepKey(screenId, stepLabel)) pos = steps.findIndex((st) => stepKey(st.screenId) === stepKey(screenId, stepLabel));
+  const curId = screen?.screenId || screenId;
+  const curStep = screen?.stepLabel || stepLabel;
+  let pos = steps.findIndex((st) => st.screenId === curId);
+  if (pos < 0 && stepKey(curId, curStep)) pos = steps.findIndex((st) => stepKey(st.screenId) === stepKey(curId, curStep));
   const next = pos >= 0 ? steps[pos + 1] : steps[0];
-  const nextHint = next ? `${next.trigger ? `clicar em "${next.trigger}" para ` : ''}chegar em "${nameOf(next.screenId)}"` : '';
-  const acts = (Array.isArray(actions) ? actions : []).slice(0, 30);
-  const flds = (Array.isArray(inputs) ? inputs : []).slice(0, 15);
+  const isTaskEnd = pos >= 0 && pos === steps.length - 1;
+  const nextHint = isTaskEnd
+    ? 'a pessoa já está na tela final desta tarefa'
+    : next
+    ? `${next.trigger ? `clicar em "${next.trigger}" para ` : ''}chegar em "${nameOf(next.screenId)}"`
+    : '';
+
+  // Campos lidos da tela (sem valores digitados): rótulo, tipo, opções, obrigatório, preenchido
+  const fields: any[] = Array.isArray(screen?.fields) ? screen.fields.slice(0, 30) : [];
+  const fieldLines = fields.map((f) => {
+    const label = String(f.label || f.placeholder || f.type || 'campo').replace(/\s*Selecione\s*$/i, '');
+    const bits = [f.type === 'lista' ? 'lista de opções' : f.type];
+    if (f.options?.length) bits.push(`opções: ${f.options.slice(0, 12).join(', ')}`);
+    if (f.required) bits.push('obrigatório');
+    if (f.locked) bits.push('bloqueado');
+    if (f.invalid) bits.push('COM ERRO');
+    if ('filled' in f) bits.push(f.filled ? 'já preenchido' : 'vazio');
+    if (f.selected) bits.push(`selecionado: ${f.selected}`);
+    if ('checked' in f) bits.push(f.checked ? 'marcado' : 'desmarcado');
+    if (f.maxlength) bits.push(`máx. ${f.maxlength} caracteres`);
+    if (f.min || f.max) bits.push(`faixa ${f.min || '?'}–${f.max || '?'}`);
+    return `- ${label} (${bits.join('; ')})`;
+  });
+  const buttons: string[] = (Array.isArray(screen?.buttons) ? screen.buttons : Array.isArray(actions) ? actions : []).slice(0, 40);
+  const errors: string[] = Array.isArray(screen?.errors) ? screen.errors.slice(0, 8) : [];
+  const screenText = String(screen?.text || '').slice(0, 3500);
   const n = Number(helpCount) || 1;
 
   const fallback = () => {
+    if (errors.length) return `A tela mostra um aviso: “${errors[0]}”. Corrija esse ponto e tente avançar de novo.`;
+    const empty = fields.filter((f) => f.filled === false || (f.type === 'lista' && !f.selected));
+    if (empty.length) {
+      const names = empty.slice(0, 4).map((f) => String(f.label || f.placeholder).replace(/\s*Selecione\s*$/i, '')).join(', ');
+      return `Ainda faltam campos nesta tela: ${names}. Preencha (pode usar dados de exemplo) e depois clique em ${next?.trigger ? `“${next.trigger}”` : 'avançar'}.`;
+    }
     if (next?.trigger) return `Procure na tela a opção “${next.trigger}” e clique nela para continuar.`;
-    if (flds.length) return `Preencha os campos desta tela (${flds.slice(0, 3).join(', ')}) e depois procure o botão para avançar.`;
     return `Releia a tarefa: “${task?.instruction || task?.title || ''}”. Procure na tela uma opção relacionada a isso.`;
   };
 
   if (!aiEngine()) return res.json({ answer: fallback(), engine: 'local' });
 
   const prompt = `Você é o assistente de ajuda de um protótipo digital. Uma pessoa está tentando cumprir uma tarefa e pediu ajuda.
-Responda em português do Brasil, com no máximo 2 frases curtas e linguagem simples, falando direto com a pessoa ("você").
-${n <= 1 ? 'Este é o primeiro pedido de ajuda: dê uma dica que oriente, sem entregar o passo exato logo de cara.' : 'A pessoa já pediu ajuda antes: seja direto e diga exatamente o que clicar ou preencher.'}
-Use os nomes dos botões e campos exatamente como aparecem na tela. Não fale de "teste", "pesquisa", "métricas", "caminho esperado" nem de tarefas futuras. Não invente funções que não estão na lista.
+Responda em português do Brasil, falando direto com a pessoa ("você"), em linguagem simples.
+
+Como responder:
+- Use SEMPRE o conteúdo real da tela abaixo (textos, campos, opções, botões). Nunca diga que "não há informação" se ela estiver nos textos ou campos.
+- Se a pergunta for sobre o que preencher: explique cada campo relevante em uma linha e dê um EXEMPLO de valor fictício no formato esperado (ex.: CPF 123.456.789-09, celular (11) 98765-4321, e-mail maria@exemplo.com, CEP 01310-100, datas dd/mm/aaaa, valores em R$). Para listas, cite as opções que existem. Respeite regras que aparecem no texto da tela (valor mínimo, prazos, limites) e mencione-as.
+- Se houver erro visível, explique como corrigir.
+- ${n <= 1 ? 'É o primeiro pedido: oriente sem fazer pela pessoa, mas a dica precisa levar ao próximo passo correto.' : 'A pessoa já pediu ajuda antes: seja direto, diga exatamente o que preencher e onde clicar.'}
+- Ignore menus globais do topo e da lateral (ex.: Cálculos, Produtos, Serviços, Propostas) a menos que a tarefa peça por eles. Nunca sugira um caminho diferente do próximo passo correto.
+- Não fale de "teste", "pesquisa", "métricas" nem de tarefas futuras. Não invente campos ou botões que não estão na lista.
+- Formato: no máximo 6 linhas. Pode usar "- " para listar campos e **negrito** para nomes de botões/campos.
 
 Tarefa atual: ${task?.title || ''}${task?.instruction ? ` — ${task.instruction}` : ''}
-Tela em que a pessoa está: ${screenName || title || screenId || 'desconhecida'}
-Botões e links visíveis: ${acts.join(' | ') || 'não informado'}
-Campos visíveis: ${flds.join(' | ') || 'nenhum'}
-Próximo passo correto (use para orientar, não cite assim): ${nextHint || 'a pessoa está fora do fluxo; ajude a voltar para a tela inicial da tarefa'}
+Tela atual: ${screen?.screenName || screenName || title || curId || 'desconhecida'}${screen?.dialog ? ' (janela/modal aberta)' : ''}
+Próximo passo correto (use para orientar, não cite com estas palavras): ${nextHint || 'a pessoa está fora do fluxo; ajude a voltar para o início da tarefa'}
+Campos da tela:
+${fieldLines.join('\n') || '- nenhum campo de preenchimento visível'}
+Botões e opções clicáveis: ${buttons.join(' | ') || 'não informado'}
+${errors.length ? `Avisos/erros visíveis: ${errors.join(' | ')}\n` : ''}Texto visível da tela (na ordem): ${screenText || 'não disponível'}
 ${Array.isArray(history) && history.length ? `Conversa anterior:\n${history.slice(-4).map((h: any) => `Pessoa: ${h.q}\nAssistente: ${h.a}`).join('\n')}\n` : ''}Pergunta da pessoa: ${String(question || 'Não sei o que fazer agora.').slice(0, 400)}`;
   try {
     const { text, model } = await aiText(prompt);
-    return res.json({ answer: text.replace(/^["“]|["”]$/g, '').slice(0, 600), engine: 'ia', model });
+    return res.json({ answer: text.replace(/^["“]|["”]$/g, '').slice(0, 1200), engine: 'ia', model });
   } catch (err: any) {
     console.warn('[IA] ajuda ao participante falhou:', String(err?.message || err).slice(0, 160));
     return res.json({ answer: fallback(), engine: 'local' });

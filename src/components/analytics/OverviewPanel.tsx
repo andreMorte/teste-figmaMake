@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ParticipantSession, TestTask, TrackedEvent, UsabilityTest } from '../../types';
+import { AiHelpInsights } from './AiHelpInsights';
 import {
   Award,
   CheckCircle2,
@@ -459,6 +460,9 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, is
               </div>
             )
           )}
+
+          {/* Ajuda da IA (testes não moderados) */}
+          <AiHelpInsights test={test} sessions={sessions.filter((s) => s.testId === test.id)} onOpenParticipant={onOpenParticipant} />
 
           {/* Participantes */}
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-4">

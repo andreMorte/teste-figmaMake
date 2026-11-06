@@ -865,13 +865,36 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     }
   };
 
+  const readScreenFromPrototype = (): Promise<any | null> =>
+    new Promise((resolve) => {
+      const requestId = `RS-${Date.now()}`;
+      const frames = Array.from(document.querySelectorAll('iframe'));
+      if (!frames.length) return resolve(null);
+      const onMsg = (ev: MessageEvent) => {
+        const d: any = ev.data;
+        if (d && d.type === 'UXLAB_SCREEN_CONTEXT' && d.requestId === requestId) {
+          window.removeEventListener('message', onMsg);
+          clearTimeout(timer);
+          resolve(d.context || null);
+        }
+      };
+      const timer = setTimeout(() => {
+        window.removeEventListener('message', onMsg);
+        resolve(null);
+      }, 1500);
+      window.addEventListener('message', onMsg);
+      frames.forEach((f) => f.contentWindow?.postMessage({ type: 'UXLAB_READ_SCREEN', requestId }, '*'));
+    });
+
   const askAi = async (question: string) => {
     if (!test || !session || aiLoading) return;
     const q = question.trim() || 'Não sei o que fazer agora.';
     const task = test.tasks[currentTaskIndex];
-    const scene = lastSceneRef.current || {};
     setAiLoading(true);
     setAiInput('');
+    // pede ao SDK uma leitura completa da tela agora (textos, campos, opções, botões, erros)
+    const screen = await readScreenFromPrototype();
+    const scene = { ...(lastSceneRef.current || {}), ...(screen || {}) };
     let answer = '';
     let engine = 'local';
     try {
@@ -886,8 +909,9 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           screenName: scene.screenName || prototypeScreen,
           title: scene.title,
           stepLabel: scene.stepLabel,
-          actions: scene.actions,
+          actions: scene.buttons || scene.actions,
           inputs: scene.inputs,
+          screen: screen || undefined,
           question: q,
           history: aiChat,
           helpCount: aiChat.length + 1
@@ -1375,7 +1399,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      <div className="max-h-56 overflow-y-auto p-3 space-y-2.5">
+                      <div className="max-h-72 overflow-y-auto p-3 space-y-2.5">
                         {aiChat.length === 0 && !aiLoading && (
                           <div className="text-[11px] text-slate-600 leading-relaxed">
                             Está com dificuldade? Conte o que está tentando fazer e eu dou uma dica com base no que está na sua tela.
@@ -1384,7 +1408,18 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                         {aiChat.map((m, i) => (
                           <div key={i} className="space-y-1.5">
                             <div className="ml-6 px-2.5 py-1.5 rounded-lg rounded-tr-sm bg-white border border-slate-200 text-[11px] text-slate-700">{m.q}</div>
-                            <div className="mr-6 px-2.5 py-1.5 rounded-lg rounded-tl-sm bg-violet-600 text-[11px] text-white leading-relaxed">{m.a}</div>
+                            <div className="mr-6 px-2.5 py-1.5 rounded-lg rounded-tl-sm bg-violet-600 text-[11px] text-white leading-relaxed space-y-1">
+                              {m.a.split(/\n+/).filter((l) => l.trim()).map((line, li) => {
+                                const isItem = /^\s*[-*•]\s+/.test(line);
+                                const parts = line.replace(/^\s*[-*•]\s+/, '').split(/\*\*(.+?)\*\*/g);
+                                return (
+                                  <div key={li} className={isItem ? 'flex gap-1.5' : ''}>
+                                    {isItem && <span className="text-violet-200">•</span>}
+                                    <span>{parts.map((p, pi) => (pi % 2 ? <strong key={pi} className="font-semibold">{p}</strong> : <React.Fragment key={pi}>{p}</React.Fragment>))}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         ))}
                         {aiLoading && (
@@ -1395,7 +1430,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                       </div>
                       {aiChat.length === 0 && !aiLoading && (
                         <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-                          {['Não sei o que fazer agora', 'Onde eu clico para continuar?'].map((t) => (
+                          {['Não sei o que fazer agora', 'O que preencho nesta tela?', 'Onde eu clico para continuar?'].map((t) => (
                             <button key={t} type="button" onClick={() => askAi(t)} className="px-2 py-1 rounded-md bg-white border border-violet-200 text-[11px] text-violet-700 hover:bg-violet-100">
                               {t}
                             </button>

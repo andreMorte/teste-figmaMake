@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ParticipantSession, TrackedEvent, UsabilityTest } from '../../types';
 import { HeatmapExplorer } from '../analytics/HeatmapExplorer';
+import { collectAiHelps, OUTCOME_LABEL } from '../../utils/aiHelp';
 import { npsOf, susQuestionsOf, npsCategory, NPS_LABEL } from '../../utils/surveyDefaults';
 import {
   ArrowLeft,
@@ -253,6 +254,8 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
       <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold">Não iniciou</span>
     );
 
+  const helps = collectAiHelps(view.test, view.sessions);
+  const helpsResolved = helps.filter((h) => h.resolved).length;
   const kpis = [
     { label: 'Tarefas concluídas', value: `${view.ok}/${view.tasks.length}`, icon: CheckCircle2, tone: view.ok === view.tasks.length ? 'text-emerald-600' : 'text-amber-600' },
     { label: 'Tempo nas tarefas', value: fmt(view.taskTime), sub: `sessão inteira ${fmt(view.totalSession)}`, icon: Clock, tone: 'text-slate-900' },
@@ -262,7 +265,7 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
     {
       label: 'Dificuldades',
       value: view.difficulties,
-      sub: view.test.moderation === 'unmoderated' ? `${view.aiHelps} pedido(s) de ajuda à IA` : undefined,
+      sub: undefined,
       icon: AlertTriangle,
       tone: view.difficulties || view.aiHelps ? 'text-rose-600' : 'text-slate-900'
     }
@@ -321,7 +324,7 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
       </div>
 
       {/* Métricas da pessoa */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className={`grid grid-cols-2 md:grid-cols-3 gap-3 ${view.test.moderation === 'unmoderated' || helps.length ? 'xl:grid-cols-7' : 'xl:grid-cols-6'}`}>
         {kpis.map((k) => (
           <div key={k.label} className="p-4 rounded-2xl bg-white border border-slate-200">
             <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium"><k.icon className="w-3.5 h-3.5" /> {k.label}</div>
@@ -329,7 +332,54 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
             {k.sub && <div className="text-[11px] text-slate-400 mt-0.5">{k.sub}</div>}
           </div>
         ))}
+        {(view.test.moderation === 'unmoderated' || helps.length > 0) && (
+          <a href="#ajuda-ia" className="p-4 rounded-2xl bg-violet-50 border border-violet-200 hover:border-violet-300">
+            <div className="flex items-center gap-1.5 text-xs text-violet-700 font-medium"><Sparkles className="w-3.5 h-3.5" /> Ajuda da IA</div>
+            <div className={`text-2xl font-semibold mt-1.5 ${helps.length ? 'text-violet-700' : 'text-slate-900'}`}>{helps.length}</div>
+            <div className="text-[11px] text-violet-600/80 mt-0.5">{helps.length ? `${helpsResolved} resolveram` : 'não pediu ajuda'}</div>
+          </a>
+        )}
       </div>
+
+      {/* Pedidos de ajuda à IA: o que perguntou, onde, o que recebeu e se avançou */}
+      {helps.length > 0 && (
+        <div id="ajuda-ia" className="rounded-2xl bg-white border border-violet-200 overflow-hidden scroll-mt-20">
+          <div className="px-5 py-4 bg-gradient-to-r from-violet-50 to-white border-b border-violet-100 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Sparkles className="w-4 h-4 text-violet-600" /> Pediu ajuda à IA {helps.length}×
+            </div>
+            <div className="text-xs text-slate-600">
+              <b className="text-emerald-700">{helpsResolved}</b> avançaram depois da resposta ·{' '}
+              <b className="text-rose-600">{helps.length - helpsResolved}</b> não resolveram
+            </div>
+          </div>
+          <ol className="divide-y divide-slate-100">
+            {helps.map((h, i) => (
+              <li key={i} className="px-5 py-3.5 grid grid-cols-1 md:grid-cols-[150px_minmax(0,1fr)_220px] gap-3 text-xs">
+                <div className="text-slate-500">
+                  <div className="font-semibold text-slate-800">{new Date(h.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                  <div className="truncate" title={h.screenName}>{h.screenName}</div>
+                  {h.taskTitle && <div className="truncate text-slate-400" title={h.taskTitle}>{h.taskTitle}</div>}
+                </div>
+                <div className="space-y-1.5 min-w-0">
+                  <div className="inline-block px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-800">“{h.question}”</div>
+                  <div className="px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-900 whitespace-pre-line">{h.answer.replace(/\*\*/g, '')}</div>
+                </div>
+                <div>
+                  <span className={`inline-flex px-2 py-1 rounded-lg font-semibold ${h.resolved ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                    {OUTCOME_LABEL[h.outcome]}
+                  </span>
+                  {h.secondsToProgress !== undefined && (
+                    <div className="text-slate-500 mt-1">
+                      em {h.secondsToProgress}s{h.nextScreenName ? ` → ${h.nextScreenName}` : ''}
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-6 items-start">
         {/* Jornada passo a passo */}

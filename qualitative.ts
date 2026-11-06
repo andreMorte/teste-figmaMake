@@ -555,7 +555,7 @@ export async function aiText(prompt: string, budgetMs = 25000): Promise<{ text: 
       fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model, max_tokens: 400, messages: [{ role: 'user', content: prompt }] })
+        body: JSON.stringify({ model, max_tokens: 700, messages: [{ role: 'user', content: prompt }] })
       }),
       budgetMs,
       model
@@ -582,7 +582,7 @@ export async function aiText(prompt: string, budgetMs = 25000): Promise<{ text: 
           contents: prompt,
           config: {
             temperature: 0.4,
-            maxOutputTokens: 400,
+            maxOutputTokens: 700,
             ...(/^gemini-2\.5-flash(-lite)?$/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
           } as any
         }),

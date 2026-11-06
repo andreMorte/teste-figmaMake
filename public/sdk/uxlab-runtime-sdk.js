@@ -667,10 +667,118 @@
   window.addEventListener('popstate', function () { scheduleCheck(300); });
   window.addEventListener('hashchange', function () { scheduleCheck(300); });
 
+
+  // ---------------------------------------------------------------------------
+  // Leitura completa da tela (pedida pela "Ajuda da IA"): textos, campos, opções, botões e erros.
+  // Valores digitados NÃO são enviados (podem ser dados pessoais): só se o campo está preenchido.
+  // ---------------------------------------------------------------------------
+  function fieldLabel(el) {
+    var t = el.getAttribute('aria-label') || '';
+    if (!t && el.getAttribute('aria-labelledby')) {
+      var ref = document.getElementById(el.getAttribute('aria-labelledby'));
+      if (ref) t = clean(ref.innerText);
+    }
+    if (!t && el.id) {
+      var lab = document.querySelector('label[for="' + el.id + '"]');
+      if (lab) t = clean(lab.innerText);
+    }
+    if (!t && el.closest('label')) t = clean(el.closest('label').innerText);
+    if (!t) t = el.getAttribute('placeholder') || '';
+    // rótulo como texto vizinho: sobe até 3 níveis procurando um texto curto que não seja as opções do próprio campo
+    var node = el.parentElement;
+    for (var up = 0; !t && node && up < 3; up++, node = node.parentElement) {
+      var txt = '';
+      for (var c = 0; c < node.childNodes.length; c++) {
+        var ch = node.childNodes[c];
+        if (ch === el || (ch.contains && ch.contains(el))) continue;
+        if (ch.nodeType === 1 && /^(SELECT|OPTION|INPUT|TEXTAREA|BUTTON)$/.test(ch.tagName)) continue;
+        txt += ' ' + (ch.nodeType === 3 ? ch.textContent : ch.innerText || '');
+      }
+      txt = clean(txt);
+      if (txt && txt.length <= 60) t = txt;
+    }
+    return clean(t).slice(0, 80);
+  }
+
+  function readScreen() {
+    var root = getRoot();
+    var dialog = findDialog();
+    var scope = dialog || root;
+    var scene = null;
+    try {
+      scene = computeScene();
+    } catch (e) {}
+    var fields = [];
+    var els = scope.querySelectorAll('input:not([type=hidden]),select,textarea,[role=combobox],[role=slider],[role=checkbox],[role=radio],[role=switch],[contenteditable=true]');
+    for (var i = 0; i < els.length && fields.length < 30; i++) {
+      var el = els[i];
+      if (!isVisible(el)) continue;
+      var f = { label: fieldLabel(el), type: (el.getAttribute('type') || el.getAttribute('role') || el.tagName).toLowerCase() };
+      if (el.tagName === 'SELECT') {
+        f.type = 'lista';
+        f.options = [];
+        for (var o = 0; o < el.options.length && f.options.length < 20; o++) {
+          var ot = clean(el.options[o].text);
+          if (ot && !/^selecione/i.test(ot)) f.options.push(ot);
+        }
+        var sel = el.options[el.selectedIndex];
+        f.selected = sel && el.value ? clean(sel.text) : '';
+      } else if (/checkbox|radio|switch/.test(f.type)) {
+        f.checked = !!(el.checked || el.getAttribute('aria-checked') === 'true');
+      } else {
+        f.filled = !!(el.value || clean(el.innerText || ''));
+      }
+      if (el.required || el.getAttribute('aria-required') === 'true') f.required = true;
+      if (el.getAttribute('aria-invalid') === 'true') f.invalid = true;
+      if (el.disabled || el.readOnly) f.locked = true;
+      ['min', 'max', 'maxlength', 'pattern', 'inputmode'].forEach(function (a) {
+        if (el.getAttribute(a)) f[a] = el.getAttribute(a);
+      });
+      if (el.getAttribute('placeholder')) f.placeholder = el.getAttribute('placeholder');
+      fields.push(f);
+    }
+    var buttons = [];
+    var bs = scope.querySelectorAll('button,a,[role=button],[role=tab]');
+    for (var b = 0; b < bs.length && buttons.length < 40; b++) {
+      if (!isVisible(bs[b])) continue;
+      var bl = labelOf(bs[b]);
+      if (!bl) continue;
+      var label = bl + (bs[b].disabled || bs[b].getAttribute('aria-disabled') === 'true' ? ' (desabilitado)' : '');
+      if (buttons.indexOf(label) === -1) buttons.push(label);
+    }
+    var errors = [];
+    var es = scope.querySelectorAll('[role=alert],[aria-live=assertive],[class*=error],[class*=erro],[class*=invalid]');
+    for (var e = 0; e < es.length && errors.length < 8; e++) {
+      var et = clean(es[e].innerText || '');
+      if (et && et.length < 160 && isVisible(es[e]) && errors.indexOf(et) === -1) errors.push(et);
+    }
+    var text = clean((scope.innerText || '').replace(/\s*\n\s*/g, ' | ')).slice(0, 4000);
+    return {
+      screenId: scene && scene.screenId,
+      screenName: scene && scene.screenName,
+      title: scene && scene.title,
+      stepLabel: scene && scene.stepLabel,
+      dialog: !!dialog,
+      text: text,
+      fields: fields,
+      buttons: buttons,
+      errors: errors
+    };
+  }
+
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || typeof d !== 'object') return;
     if (d.type === 'UXLAB_TRIGGER_CAPTURE') captureViewport(currentScene);
+    if (d.type === 'UXLAB_READ_SCREEN') {
+      var ctx;
+      try {
+        ctx = readScreen();
+      } catch (err) {
+        ctx = { error: String(err) };
+      }
+      sendToParent({ type: 'UXLAB_SCREEN_CONTEXT', requestId: d.requestId, context: ctx });
+    }
     if (d.type === 'UXLAB_SET_SESSION' && d.sessionId) {
       sessionId = String(d.sessionId);
       if (d.participantId) participantId = String(d.participantId);
