@@ -247,7 +247,9 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const [customAnswers, setCustomAnswers] = useState<Record<string, string | number>>({});
 
   // SUS questions state (10 questions, answers 1 to 5)
-  const [susAnswers, setSusAnswers] = useState<number[]>([4, 2, 4, 2, 4, 2, 5, 2, 4, 2]);
+  // SUS começa em branco (0 = sem resposta): nada pré-marcado para não induzir a avaliação
+  const [susAnswers, setSusAnswers] = useState<number[]>(Array(10).fill(0));
+  const susMissing = susAnswers.filter((v) => !v).length;
 
   // guarda em que parte do questionário a pessoa está (F5 volta para o mesmo lugar)
   useEffect(() => {
@@ -956,7 +958,9 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
   // Submit Researcher Custom Survey
   const surveyQuestions = test && test.metricConfig.customQuestions !== false ? (test.customQuestions || []).filter((q) => q.question.trim()) : [];
-  const missingRequired = surveyQuestions.filter((q) => q.required && (customAnswers[q.id] === undefined || String(customAnswers[q.id]).trim() === '')).length;
+  const missingRequired =
+    surveyQuestions.filter((q) => q.required && (customAnswers[q.id] === undefined || String(customAnswers[q.id]).trim() === '')).length +
+    (test?.metricConfig.nps && (customAnswers.NPS === undefined || customAnswers.NPS === '') ? 1 : 0);
   const handleCustomSurveySubmit = async () => {
     if (!session || !test) return;
     if (missingRequired > 0) return;
@@ -1007,6 +1011,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   // Submit SUS questionnaire
   const handleSusSubmit = async () => {
     if (!session || !test) return;
+    if (susAnswers.some((v) => !v)) return; // todas as 10 afirmações precisam de resposta
 
     // Calculate official Brooke SUS Score
     let oddSum = 0;
@@ -2004,11 +2009,17 @@ Quando você chegar ao fim de cada tarefa, o sistema percebe e avança sozinho.<
           </div>
           )}
 
-          <div className="flex justify-end pt-2">
+          <div className="flex items-center justify-end gap-4 pt-2">
+            {susMissing > 0 && (
+              <span className="text-xs text-amber-400 font-sans">
+                {susMissing === 10 ? 'Responda as 10 afirmações para concluir.' : `Faltam ${susMissing} afirmação(ões) para concluir.`}
+              </span>
+            )}
             <button
               type="button"
               onClick={handleSusSubmit}
-              className="px-6 py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white font-bold uppercase tracking-wider text-xs flex items-center gap-2 transition-all shadow-[0_0_20px_rgba(34,197,94,0.3)] hover:scale-[1.01]"
+              disabled={susMissing > 0}
+              className="px-6 py-3 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 text-white font-bold uppercase tracking-wider text-xs flex items-center gap-2 transition-all shadow-[0_0_20px_rgba(34,197,94,0.3)] hover:scale-[1.01]"
             >
               <span>Enviar Respostas & Concluir Teste</span>
               <Check className="w-4 h-4" />
