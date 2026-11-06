@@ -11,6 +11,7 @@ import {
 } from '../../services/dataService';
 import { isFigmaUrl, toFigmaEmbedUrl, getShareableTestUrl } from '../../utils/figmaUtils';
 import { ScreenMapper, getTaskSteps, withTaskSteps } from './ScreenMapper';
+import { MetricsStep } from './MetricsStep';
 import { MappedScreen } from '../../types';
 import {
   Check,
@@ -419,7 +420,8 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       trackingId: trackingId.trim(),
       tasks,
       screenMap,
-      customQuestions,
+      // perguntas desligadas ou sem texto não vão para o participante
+      customQuestions: metrics.customQuestions === false ? [] : customQuestions.filter((q) => q.question.trim()),
       metricConfig: metrics
     });
 
@@ -1009,186 +1011,15 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       {/* ETAPA 3 — CONFIGURAÇÃO DE MÉTRICAS */}
       {/* ========================================================================= */}
       {currentStep === 3 && (
-        <div className="p-6 sm:p-7 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-6">
-          <div>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Etapa 3 — Configuração de Métricas Comportamentais
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-              Ative ou desative os indicadores comportamentais e questionários aplicados no teste.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-            {[
-              { key: 'clickZoning', label: 'Zoneamento de Cliques (Click Zoning)', desc: 'Mapeamento de cliques em componentes, botões e dead clicks' },
-              { key: 'customQuestions', label: 'Perguntas Customizadas do Pesquisador', desc: 'Perguntas abertas e escalas pós-teste personalizadas' },
-              { key: 'taskSuccessRate', label: 'Taxa de sucesso', desc: 'Tarefas concluídas / tarefas iniciadas' },
-              { key: 'completionRate', label: 'Taxa de conclusão', desc: 'Sessões concluídas / sessões iniciadas' },
-              { key: 'taskDuration', label: 'Tempo de tarefa', desc: 'Média e mediana de duração por tarefa' },
-              { key: 'screenDuration', label: 'Tempo por tela', desc: 'Permanência em cada etapa visual' },
-              { key: 'clickCount', label: 'Cliques totais', desc: 'Volume de interações por participante' },
-              { key: 'errorClicks', label: 'Cliques incorretos', desc: 'Cliques em áreas não interativas (Dead clicks)' },
-              { key: 'backReturns', label: 'Retornos (Back rate)', desc: 'Voltas para telas anteriores por incerteza' },
-              { key: 'abandonmentRate', label: 'Taxa de abandono', desc: 'Desistências antes da tela final' },
-              { key: 'pathDeviation', label: 'Desvio de caminho', desc: 'Comparativo actualPath[] vs expectedPath[]' },
-              { key: 'mostUsedPath', label: 'Caminho mais utilizado', desc: 'Rota com maior frequência de usuários' },
-              { key: 'idealPath', label: 'Caminho ideal', desc: '% que seguiu estritamente o expectedPath[]' },
-              { key: 'sus', label: 'SUS (System Usability Scale)', desc: 'Questionário oficial de 10 itens com score 0-100' },
-              { key: 'nps', label: 'NPS Opcional', desc: 'Pergunta Net Promoter Score complementar' },
-              { key: 'qualitativeComments', label: 'Comentários qualitativos', desc: 'Feedback aberto ao fim da experiência' }
-            ].map((m) => {
-              const active = metrics[m.key as keyof MetricConfig];
-              return (
-                <div
-                  key={m.key}
-                  onClick={() => toggleMetric(m.key as keyof MetricConfig)}
-                  className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 select-none ${
-                    active
-                      ? 'bg-blue-50/70 border-blue-300 text-slate-900 shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50/50'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5 border transition-colors ${
-                      active
-                        ? 'bg-blue-600 border-blue-600 text-white'
-                        : 'bg-white border-slate-300 text-transparent'
-                    }`}
-                  >
-                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                  </div>
-                  <div>
-                    <div className={`font-semibold text-xs ${active ? 'text-blue-900' : 'text-slate-800'}`}>{m.label}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">{m.desc}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* BUILDER DE QUESTIONÁRIO ABERTO & PERGUNTAS LIVRES DO PESQUISADOR */}
-          <div className="p-5 rounded-2xl bg-slate-50/70 border border-slate-200 space-y-4 text-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-100/70 text-blue-700 flex items-center justify-center shrink-0">
-                  <MessageSquare className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-xs">
-                    Perguntas Customizadas do Pesquisador (Pós-Teste)
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Defina perguntas abertas, escalas Likert (1 a 5) ou múltipla escolha que o participante responderá ao terminar.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={addCustomQuestion}
-                className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-blue-700 font-semibold text-xs border border-slate-200 flex items-center gap-1.5 transition-all shadow-xs self-start sm:self-auto"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Adicionar Pergunta</span>
-              </button>
-            </div>
-
-            {customQuestions.length === 0 ? (
-              <div className="p-6 rounded-xl bg-white border border-dashed border-slate-200 text-center text-slate-400">
-                Nenhuma pergunta personalizada adicionada. O participante responderá apenas ao questionário SUS padronizado.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {customQuestions.map((q, qIdx) => (
-                  <div key={q.id} className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] uppercase font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
-                        Pergunta #{qIdx + 1}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={q.required || false}
-                            onChange={(e) => updateCustomQuestion(qIdx, { required: e.target.checked })}
-                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span>Obrigatória</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => removeCustomQuestion(qIdx)}
-                          className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                          title="Remover pergunta"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="sm:col-span-2">
-                        <input
-                          type="text"
-                          value={q.question}
-                          onChange={(e) => updateCustomQuestion(qIdx, { question: e.target.value })}
-                          placeholder="Digite aqui o questionamento ou pergunta aberta..."
-                          className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none text-xs"
-                        />
-                      </div>
-                      <div>
-                        <select
-                          value={q.type}
-                          onChange={(e) => updateCustomQuestion(qIdx, { type: e.target.value as CustomQuestionType })}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none text-xs"
-                        >
-                          <option value="open_text">Texto Livre (Dissertativa)</option>
-                          <option value="likert_scale">Escala Likert (1 a 5 estrelas)</option>
-                          <option value="multiple_choice">Múltipla Escolha</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {q.type === 'multiple_choice' && (
-                      <div className="pt-1">
-                        <label className="block text-[11px] text-slate-500 font-medium mb-1">Opções (separadas por vírgula):</label>
-                        <input
-                          type="text"
-                          value={(q.options || []).join(', ')}
-                          onChange={(e) => {
-                            const opts = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
-                            updateCustomQuestion(qIdx, { options: opts });
-                          }}
-                          placeholder="Ex: Sim, Não, Parcialmente, Não sei avaliar"
-                          className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none text-xs"
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-between gap-3 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setCurrentStep(2)}
-              className="px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <span>Voltar</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentStep(4)}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
-            >
-              <span>Avançar para Publicação</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <MetricsStep
+          metrics={metrics}
+          setMetrics={setMetrics}
+          customQuestions={customQuestions}
+          setCustomQuestions={setCustomQuestions}
+          tasksCount={tasks.length}
+          onBack={() => setCurrentStep(2)}
+          onNext={() => setCurrentStep(4)}
+        />
       )}
 
       {/* ========================================================================= */}

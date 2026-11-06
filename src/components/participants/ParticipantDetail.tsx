@@ -424,6 +424,25 @@ export const ParticipantDetail: React.FC<ParticipantDetailProps> = ({ testId, pa
             </div>
           )}
 
+          {view.custom.NPS !== undefined && view.custom.NPS !== '' && (
+            <div className="rounded-2xl bg-white border border-slate-200 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-slate-900">NPS</div>
+                {(() => {
+                  const n = Number(view.custom.NPS);
+                  const [label, tone] = n >= 9 ? ['Promotor', 'bg-emerald-50 text-emerald-700'] : n >= 7 ? ['Neutro', 'bg-amber-50 text-amber-700'] : ['Detrator', 'bg-rose-50 text-rose-700'];
+                  return <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${tone}`}>{n} · {label}</span>;
+                })()}
+              </div>
+              <div className="text-xs text-slate-500">De 0 a 10, o quanto recomendaria esta experiência?</div>
+              <div className="flex flex-wrap gap-1">
+                {Array.from({ length: 11 }, (_, n) => (
+                  <span key={n} className={`w-7 h-7 rounded-md text-[11px] font-semibold flex items-center justify-center ${Number(view.custom.NPS) === n ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{n}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="rounded-2xl bg-white border border-slate-200 p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Sparkles className="w-4 h-4 text-amber-500" /> Questionário SUS</div>

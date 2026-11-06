@@ -90,6 +90,10 @@ export function collectQualitative(test: any, sessions: any[], events: any[], su
         const text = q.type === 'likert_scale' ? `${v} de 5` : String(v).trim();
         push({ ...who, source: 'pergunta', questionId: q.id, question: q.question, questionType: q.type, text, value: q.type === 'likert_scale' ? Number(v) : String(v) });
       }
+      const nps = meta.answers.NPS;
+      if (nps !== undefined && nps !== null && String(nps).trim() !== '') {
+        push({ ...who, source: 'pergunta', questionId: 'NPS', question: 'NPS: de 0 a 10, o quanto recomendaria esta experiência?', questionType: 'nps', text: `${nps} de 10`, value: Number(nps) });
+      }
     }
     if ((e.eventType === 'TASK_ERROR' || e.eventType === 'TASK_ABANDON') && meta.comment && !DEFAULT_DIFFICULTY.test(String(meta.comment).trim())) {
       push({ ...who, source: e.eventType === 'TASK_ERROR' ? 'dificuldade' : 'desistencia', taskTitle: taskTitle(e.taskId), text: String(meta.comment).trim() });
@@ -234,7 +238,7 @@ function buildPrompt(test: any, items: QualItem[], participants: QualParticipant
 Dados (JSON):
 ${JSON.stringify(data)}
 
-Origem das respostas: "pergunta" = pergunta configurada pelo pesquisador (likert de 1 a 5 vem como "N de 5"); "dificuldade" = participante clicou em "Tive dificuldade" durante a tarefa; "desistencia" = comentário ao desistir da tarefa; "comentario_sus" = comentário livre no final.
+Origem das respostas: "pergunta" = pergunta configurada pelo pesquisador (likert de 1 a 5 vem como "N de 5"; NPS vem como "N de 10": 0-6 detrator, 7-8 neutro, 9-10 promotor); "dificuldade" = participante clicou em "Tive dificuldade" durante a tarefa; "desistencia" = comentário ao desistir da tarefa; "comentario_sus" = comentário livre no final.
 
 Faça:
 1. items: classifique CADA resposta (use o mesmo id) em "dor" (fricção, confusão, crítica, nota baixa), "positivo" (algo que funcionou bem), "sugestao" (pedido ou ideia de melhoria) ou "neutro". Para likert: 1-2 = dor, 3 = neutro, 4-5 = positivo, considerando o sentido da pergunta. Dê um tema curto (2 a 4 palavras), intensidade de 1 a 5, a emoção predominante (ex.: frustração, confusão, insegurança, satisfação, confiança, alívio, indiferença) e um insight de uma frase.
@@ -448,6 +452,10 @@ const HEDGE = ['acho', 'talvez', 'parece', 'meio', 'um pouco', 'não sei', 'nao 
 const INTENS = ['muito', 'super', 'bem ', 'demais', 'extremamente', 'totalmente', 'nada'];
 
 function classifyText(i: QualItem): { category: QualCategory; intensity: number; emotion: string } {
+  if (i.questionType === 'nps' && typeof i.value === 'number') {
+    const v = i.value;
+    return v <= 6 ? { category: 'dor', intensity: v <= 3 ? 5 : 4, emotion: 'insatisfação' } : v >= 9 ? { category: 'positivo', intensity: 4, emotion: 'satisfação' } : { category: 'neutro', intensity: 2, emotion: 'indiferença' };
+  }
   if (i.questionType === 'likert_scale' && typeof i.value === 'number') {
     const v = i.value;
     return v <= 2 ? { category: 'dor', intensity: v === 1 ? 5 : 4, emotion: 'frustração' } : v >= 4 ? { category: 'positivo', intensity: v === 5 ? 5 : 3, emotion: 'satisfação' } : { category: 'neutro', intensity: 2, emotion: 'indiferença' };

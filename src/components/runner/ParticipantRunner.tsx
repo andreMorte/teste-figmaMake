@@ -607,7 +607,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const handleGoToQuestions = async () => {
     if (!session || !test) return;
     setTaskDoneModal(null);
-    if (test.customQuestions && test.customQuestions.length > 0) {
+    const hasCustom = test.metricConfig.customQuestions !== false && (test.customQuestions || []).length > 0;
+    if (hasCustom || test.metricConfig.nps) {
       setStep('custom_survey');
       await trackEvent({
         sessionId: session.sessionId,
@@ -712,8 +713,11 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   };
 
   // Submit Researcher Custom Survey
+  const surveyQuestions = test && test.metricConfig.customQuestions !== false ? (test.customQuestions || []).filter((q) => q.question.trim()) : [];
+  const missingRequired = surveyQuestions.filter((q) => q.required && (customAnswers[q.id] === undefined || String(customAnswers[q.id]).trim() === '')).length;
   const handleCustomSurveySubmit = async () => {
     if (!session || !test) return;
+    if (missingRequired > 0) return;
 
     await trackEvent({
       sessionId: session.sessionId,
@@ -1448,7 +1452,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       {/* ========================================================================= */}
       {/* 2.5 QUESTIONÁRIO ABERTO CUSTOMIZADO DO PESQUISADOR */}
       {/* ========================================================================= */}
-      {step === 'custom_survey' && test && test.customQuestions && (
+      {step === 'custom_survey' && test && (
         <div className="flex-1 p-4 sm:p-8 max-w-4xl mx-auto w-full space-y-6 font-mono animate-in fade-in duration-300">
           <div className="p-6 rounded-2xl bg-[#0d0d0d] border border-[#222] shadow-2xl space-y-3">
             <div className="flex items-center justify-between border-b border-[#222] pb-3">
@@ -1456,7 +1460,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
                 <Sparkles className="w-4 h-4" />
                 <span>Questionário Específico da Pesquisa</span>
               </span>
-              <span className="text-[11px] text-[#666]">{test.customQuestions.length} perguntas formuladas</span>
+              <span className="text-[11px] text-[#666]">{surveyQuestions.length + (test.metricConfig.nps ? 1 : 0)} pergunta(s)</span>
             </div>
             <h2 className="text-lg font-bold text-white font-sans">
               Tarefas concluídas! Gostaríamos de ouvir sua opinião sobre os pontos-chave:
@@ -1467,7 +1471,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           </div>
 
           <div className="space-y-4">
-            {test.customQuestions.map((q, idx) => {
+            {surveyQuestions.map((q, idx) => {
               const currentAnswer = customAnswers[q.id];
 
               return (
@@ -1552,11 +1556,46 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
             })}
           </div>
 
-          <div className="flex justify-end pt-4">
+          {test.metricConfig.nps && (
+            <div className="p-5 rounded-xl bg-[#0a0a0a] border border-[#222] space-y-3">
+              <div className="flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center text-xs font-bold shrink-0">
+                  {surveyQuestions.length + 1}
+                </span>
+                <div className="text-sm font-sans font-medium text-white">
+                  De 0 a 10, o quanto você recomendaria esta experiência a um amigo ou colega?
+                </div>
+              </div>
+              <div className="pl-9 grid grid-cols-11 gap-1.5">
+                {Array.from({ length: 11 }, (_, n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setCustomAnswers({ ...customAnswers, NPS: n })}
+                    className={`py-2 rounded-lg border font-mono text-xs font-bold transition-all ${
+                      customAnswers.NPS === n ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black border-[#222] text-[#888] hover:border-[#333] hover:text-white'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div className="pl-9 flex justify-between text-[10px] text-[#666] font-sans">
+                <span>Nada provável</span>
+                <span>Muito provável</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-4 pt-4">
+            {missingRequired > 0 && (
+              <span className="text-xs text-amber-400 font-sans">Responda {missingRequired} pergunta(s) obrigatória(s) para continuar.</span>
+            )}
             <button
               type="button"
+              disabled={missingRequired > 0}
               onClick={handleCustomSurveySubmit}
-              className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold uppercase tracking-wider text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all"
+              className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold uppercase tracking-wider text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all"
             >
               <span>{test.metricConfig.sus ? 'Avançar para Avaliação de Usabilidade (SUS)' : 'Concluir Teste de Usabilidade'}</span>
               <ArrowRight className="w-4 h-4" />
@@ -1636,6 +1675,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
           </div>
 
           {/* Qualitative Open Comment */}
+          {test.metricConfig.qualitativeComments !== false && (
           <div className="p-4 rounded-xl bg-[#0a0a0a] border border-[#222] space-y-2">
             <label className="block text-xs text-[#aaa] font-bold uppercase tracking-wider">
               Comentário ou Sugestão Adicional (Opcional):
@@ -1648,6 +1688,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
               className="w-full p-3 rounded-lg bg-black border border-[#222] text-white text-xs font-sans outline-hidden focus:border-blue-500"
             />
           </div>
+          )}
 
           <div className="flex justify-end pt-2">
             <button
