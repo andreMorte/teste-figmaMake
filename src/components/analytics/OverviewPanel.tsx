@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { ParticipantSession, TestTask, TrackedEvent, UsabilityTest } from '../../types';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Hypothesis, ParticipantSession, TestTask, TrackedEvent, UsabilityTest } from '../../types';
+import { HypothesesPanel, Measurement } from './HypothesesPanel';
 import {
   Award,
   CheckCircle2,
@@ -249,6 +250,71 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, is
     [test, sessions, isDemo]
   );
   const selected = rows.find((r) => r.key === selectedKey) || null;
+
+  // Mede o indicador de uma hipótese com os dados reais do time (geral ou de uma tarefa)
+  const measureHypothesis = useCallback(
+    (h: Hypothesis): Measurement => {
+      const attempts = rows.flatMap((r) => r.attempts.map((a) => ({ ...a, person: r }))).filter((a) => a.outcome !== 'not_started');
+      const scoped = h.taskId ? attempts.filter((a) => a.task.id === h.taskId) : attempts;
+      const people = new Set(scoped.map((a) => a.person.key)).size;
+      const rate = (n: number, d: number) => (d ? (n / d) * 100 : null);
+      switch (h.metric) {
+        case 'task_success':
+          return { value: rate(scoped.filter((a) => a.outcome === 'success').length, scoped.length), base: people };
+        case 'completion':
+          return { value: rate(rows.filter((r) => r.status === 'Concluiu').length, rows.length), base: rows.length };
+        case 'avg_task_time': {
+          const t = scoped.filter((a) => a.outcome === 'success' && a.durationSec > 0).map((a) => a.durationSec);
+          return { value: t.length ? t.reduce((x, y) => x + y, 0) / t.length : null, base: people };
+        }
+        case 'sus': {
+          const sus = rows.map((r) => r.susScore).filter((x): x is number => typeof x === 'number');
+          return { value: sus.length ? sus.reduce((x, y) => x + y, 0) / sus.length : null, base: sus.length };
+        }
+        case 'nps': {
+          const scores: number[] = [];
+          rows.forEach((r) => {
+            const ans = r.sessions
+              .flatMap((s) => s.events || [])
+              .filter((e) => e.eventType === 'CUSTOM_SURVEY_END')
+              .map((e) => (e.metadata as any)?.answers || {})
+              .find((a: any) => a.NPS !== undefined && a.NPS !== '');
+            if (ans) scores.push((Number(ans.NPS) / (Number(ans.NPS_MAX) || 10)) * 10);
+          });
+          if (!scores.length) return { value: null, base: 0 };
+          const pro = scores.filter((x) => x >= 9).length;
+          const det = scores.filter((x) => x <= 6).length;
+          return { value: ((pro - det) / scores.length) * 100, base: scores.length };
+        }
+        case 'help_rate': {
+          const stuck = new Set<string>();
+          rows.forEach((r) =>
+            r.sessions.forEach((s) =>
+              (s.events || []).forEach((e) => {
+                if ((e.eventType === 'TASK_ERROR' || (e.eventType as string) === 'AI_HELP') && (!h.taskId || e.taskId === h.taskId)) stuck.add(r.key);
+              })
+            )
+          );
+          return { value: rate(stuck.size, people || rows.length), base: people || rows.length };
+        }
+        case 'dead_click_rate': {
+          const clicks = scoped.reduce((x, a) => x + a.clicks, 0);
+          return { value: rate(scoped.reduce((x, a) => x + a.deadClicks, 0), clicks), base: people };
+        }
+        case 'return_rate':
+          return { value: rate(scoped.filter((a) => a.hadReturn).length, scoped.length), base: people };
+        case 'abandon_rate':
+          return { value: rate(rows.filter((r) => r.gaveUp).length, rows.length), base: rows.length };
+        case 'deviation_rate': {
+          const w = scoped.filter((a) => a.hasExpected);
+          return { value: rate(w.filter((a) => a.deviated).length, w.length), base: new Set(w.map((a) => a.person.key)).size };
+        }
+        default:
+          return { value: null, base: 0 };
+      }
+    },
+    [rows]
+  );
   const scope = selected ? [selected] : rows;
   const m = useMemo(() => summarize(scope), [scope]);
   const team = useMemo(() => summarize(rows), [rows]);
@@ -631,6 +697,9 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({ test, sessions, is
           </div>
         </>
       )}
+
+      {/* Hipóteses do estudo × resultado (sempre visível: dá para cadastrar antes dos resultados) */}
+      {!selected && <HypothesesPanel test={test} measure={measureHypothesis} onOpenParticipant={onOpenParticipant} />}
     </div>
   );
 };

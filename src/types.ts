@@ -124,6 +124,29 @@ export interface CustomQuestion {
   required?: boolean;
 }
 
+// Hipótese do estudo (até 3), validada no fim pelo indicador escolhido + leitura das respostas
+export type HypothesisMetric =
+  | 'none'
+  | 'task_success'
+  | 'completion'
+  | 'avg_task_time'
+  | 'sus'
+  | 'nps'
+  | 'dead_click_rate'
+  | 'return_rate'
+  | 'abandon_rate'
+  | 'deviation_rate'
+  | 'help_rate';
+
+export interface Hypothesis {
+  id: string;
+  statement: string; // "Acreditamos que…"
+  metric: HypothesisMetric;
+  op: '>=' | '<=';
+  target: number;
+  taskId?: string; // indicador de uma tarefa específica (quando o indicador permite)
+}
+
 export interface NpsConfig {
   question: string;
   scaleMax: 5 | 10; // escala 0–5 ou 0–10
@@ -167,6 +190,7 @@ export interface UsabilityTest {
   participantLimit?: number; // quantidade de clientes/participantes previstos (fecha o link ao atingir)
   screenMap?: MappedScreen[]; // catálogo de cenários mapeados do protótipo
   customQuestions?: CustomQuestion[];
+  hypotheses?: Hypothesis[]; // até 3 hipóteses do estudo
   moderation?: 'moderated' | 'unmoderated'; // moderado: facilitador acompanha; não moderado: participante tem ajuda da IA
   npsConfig?: NpsConfig; // pergunta e escala do NPS editáveis
   ignoredScreens?: string[]; // cenários de transição removidos do mapeamento (servidor)

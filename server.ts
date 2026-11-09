@@ -1449,6 +1449,88 @@ ${Array.isArray(history) && history.length ? `Conversa anterior:\n${history.slic
   }
 });
 
+// Hipóteses: salvar (também em testes já criados) e avaliar com as respostas dos participantes
+app.post('/api/tests/:id/hypotheses', (req, res) => {
+  const test = serverTestsStore.find((t) => t.id === req.params.id);
+  if (!test) return res.status(404).json({ error: 'Test not found' });
+  const list = Array.isArray(req.body?.hypotheses) ? req.body.hypotheses : [];
+  test.hypotheses = list
+    .filter((h: any) => h && String(h.statement || '').trim())
+    .slice(0, 3)
+    .map((h: any) => ({
+      id: String(h.id || `H-${Math.random().toString(36).slice(2, 7).toUpperCase()}`),
+      statement: String(h.statement).trim().slice(0, 400),
+      metric: String(h.metric || 'none'),
+      op: h.op === '<=' ? '<=' : '>=',
+      target: Number(h.target) || 0,
+      taskId: h.taskId || undefined
+    }));
+  hypCache.delete(test.id);
+  return res.json({ success: true, hypotheses: test.hypotheses });
+});
+
+const hypCache = new Map<string, { hash: string; result: any }>();
+app.post('/api/tests/:id/hypotheses/evaluate', async (req, res) => {
+  const { id } = req.params;
+  const test = serverTestsStore.find((t) => t.id === id);
+  if (!test) return res.status(404).json({ error: 'Test not found' });
+  const measures: any[] = Array.isArray(req.body?.measures) ? req.body.measures.slice(0, 3) : [];
+  const input = qualInputFor(id);
+  const items = input?.items || [];
+  const hash = JSON.stringify({ m: measures.map((m) => [m.id, m.statement, m.valueText, m.verdict]), i: input?.hash });
+  const cached = hypCache.get(id);
+  if (cached && cached.hash === hash && req.query.refresh !== '1') return res.json(cached.result);
+
+  const local = () => ({
+    engine: 'local',
+    results: measures.map((m) => ({ id: m.id, stance: 'sem_evidencia', summary: '', evidence: [] }))
+  });
+  if (!aiEngine() || items.length === 0 || measures.length === 0) {
+    const result = { ...local(), noAnswers: items.length === 0 };
+    hypCache.set(id, { hash, result });
+    return res.json(result);
+  }
+  const prompt = `Você é um(a) UX Researcher avaliando hipóteses de um teste de usabilidade. Responda em português do Brasil.
+Para cada hipótese, leia os números medidos e as respostas escritas dos participantes e diga se as RESPOSTAS apoiam, contradizem, são mistas ou não trazem evidência sobre a hipótese.
+Regras: use só os dados abaixo; cite trechos curtos e literais das respostas como evidência (copie exatamente); não invente participantes nem falas; se não houver resposta relacionada, use "sem_evidencia".
+
+Hipóteses e números medidos:
+${measures.map((m, i) => `H${i + 1} [${m.id}]: ${m.statement}\n   Indicador: ${m.metricLabel || 'nenhum'}; meta ${m.targetText || '-'}; resultado ${m.valueText || '-'} (${m.verdict || 'sem veredito numérico'}; base ${m.base ?? '?'} participantes)`).join('\n')}
+
+Respostas dos participantes (id, nome, origem, texto):
+${items.slice(0, 120).map((it) => `[${it.id}] ${it.participantName} (${it.source}${it.taskTitle ? ' / ' + it.taskTitle : ''}${it.question ? ' / ' + it.question.slice(0, 60) : ''}): ${it.text}`).join('\n')}
+
+Responda SOMENTE com JSON válido neste formato:
+{"results":[{"id":"<id da hipótese>","stance":"apoia|contradiz|misto|sem_evidencia","summary":"1 a 2 frases: o que as respostas dizem sobre a hipótese e se combina com o número","evidence":[{"itemId":"Q1","quote":"trecho literal","supports":true}]}]}`;
+  try {
+    const { text, model } = await aiText(prompt, 30000, 0.2);
+    const t = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '');
+    const parsed = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const norm = (x: string) => String(x || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const results = measures.map((m) => {
+      const r = (parsed.results || []).find((x: any) => x.id === m.id) || {};
+      // só mantém citações que existem de verdade nas respostas
+      const evidence = (Array.isArray(r.evidence) ? r.evidence : [])
+        .map((e: any) => {
+          const it: any = byId.get(e.itemId);
+          if (!it || !norm(it.text).includes(norm(e.quote).slice(0, 40))) return null;
+          return { quote: String(e.quote).slice(0, 200), participantName: it.participantName, participantKey: it.participantKey, supports: !!e.supports };
+        })
+        .filter(Boolean)
+        .slice(0, 4);
+      const stance = ['apoia', 'contradiz', 'misto', 'sem_evidencia'].includes(r.stance) ? r.stance : 'sem_evidencia';
+      return { id: m.id, stance: evidence.length || stance === 'sem_evidencia' ? stance : 'sem_evidencia', summary: String(r.summary || '').slice(0, 400), evidence };
+    });
+    const result = { engine: 'ia', model, results };
+    hypCache.set(id, { hash, result });
+    return res.json(result);
+  } catch (err: any) {
+    console.warn('[IA] avaliação de hipóteses falhou:', String(err?.message || err).slice(0, 160));
+    return res.json({ ...local(), aiError: String(err?.message || err).slice(0, 200) });
+  }
+});
+
 app.get('/api/ai/status', (req, res) => {
   res.json({ engine: aiEngine(), model: process.env.GEMINI_MODEL || null, ...aiStatus });
 });

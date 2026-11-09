@@ -12,8 +12,9 @@ import {
 import { isFigmaUrl, toFigmaEmbedUrl, getShareableTestUrl } from '../../utils/figmaUtils';
 import { ScreenMapper, getTaskSteps, withTaskSteps } from './ScreenMapper';
 import { MetricsStep } from './MetricsStep';
+import { HypothesesEditor } from './HypothesesEditor';
 import { DEFAULT_NPS, DEFAULT_SUS_QUESTIONS } from '../../utils/surveyDefaults';
-import { NpsConfig } from '../../types';
+import { NpsConfig, Hypothesis } from '../../types';
 import { MappedScreen } from '../../types';
 import {
   Check,
@@ -45,7 +46,8 @@ import {
   ScanSearch,
   MousePointerClick,
   Users,
-  Bot
+  Bot,
+  Lightbulb
 } from 'lucide-react';
 
 interface CreateTestWizardProps {
@@ -62,6 +64,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   // Antes da Etapa 1: o teste é moderado (facilitador acompanha) ou não moderado (ajuda da IA para o participante)?
   const [moderation, setModeration] = useState<'moderated' | 'unmoderated' | null>(null);
+  const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
 
   // STEP 1 STATE: Info (Aberto para QUALQUER teste)
   const [name, setName] = useState('Novo Teste de Usabilidade de Produto');
@@ -426,6 +429,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       researcherName,
       participantLimit,
       moderation: moderation || 'unmoderated',
+      hypotheses: hypotheses.filter((h) => h.statement.trim()),
       category,
       status: 'Publicado',
       prototypeUrl: prototypeUrl.trim(),
@@ -784,6 +788,19 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Hipóteses do estudo: voltam no resultado com o veredito */}
+          <div className="p-5 rounded-2xl bg-amber-50/40 border border-amber-200/70 space-y-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Lightbulb className="w-4 h-4 text-amber-500" /> Hipóteses do estudo <span className="text-xs font-medium text-slate-500">(até 3, opcional)</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                O que o time espera que aconteça. No resultado, cada hipótese aparece como confirmada, parcial ou refutada, com os números e o que os participantes disseram.
+              </p>
+            </div>
+            <HypothesesEditor value={hypotheses} onChange={setHypotheses} tasks={tasks} />
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -1313,6 +1330,25 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   ))}
                 </div>
               </div>
+
+              {hypotheses.filter((h) => h.statement.trim()).length > 0 && (
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Hipóteses</div>
+                    <button type="button" onClick={() => setCurrentStep(1)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                      Editar hipóteses
+                    </button>
+                  </div>
+                  {hypotheses
+                    .filter((h) => h.statement.trim())
+                    .map((h, i) => (
+                      <div key={h.id} className="flex items-start gap-2">
+                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">H{i + 1}</span>
+                        <span className="text-slate-700">{h.statement}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
 
               {/* Tarefas cujo fim o sistema não consegue detectar: bloqueiam a publicação */}
               {undetectable.length > 0 && (
