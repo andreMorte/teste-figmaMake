@@ -47,7 +47,8 @@ import {
   MousePointerClick,
   Users,
   Bot,
-  Lightbulb
+  Lightbulb,
+  ChevronDown
 } from 'lucide-react';
 
 interface CreateTestWizardProps {
@@ -61,10 +62,12 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   onCancel,
   onOpenRunner
 }) => {
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   // Antes da Etapa 1: o teste é moderado (facilitador acompanha) ou não moderado (ajuda da IA para o participante)?
   const [moderation, setModeration] = useState<'moderated' | 'unmoderated' | null>(null);
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
+  const [showMoreInfo, setShowMoreInfo] = useState(false);
+  const [step1Tried, setStep1Tried] = useState(false); // mostra erros só depois de tentar continuar
 
   // STEP 1 STATE: Info (Aberto para QUALQUER teste)
   const [name, setName] = useState('Novo Teste de Usabilidade de Produto');
@@ -561,10 +564,11 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center justify-between">
           {[
-            { step: 1, label: 'Informações' },
-            { step: 2, label: 'Tarefas & Caminho' },
-            { step: 3, label: 'Métricas' },
-            { step: 4, label: 'Revisar e publicar' }
+            { step: 1, label: 'Estudo' },
+            { step: 2, label: 'Hipóteses' },
+            { step: 3, label: 'Tarefas' },
+            { step: 4, label: 'Métricas' },
+            { step: 5, label: 'Publicar' }
           ].map((item, idx) => (
             <React.Fragment key={item.step}>
               <div
@@ -590,7 +594,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 </div>
                 <span className="text-xs font-semibold hidden md:inline">{item.label}</span>
               </div>
-              {idx < 3 && <div className="h-px bg-slate-200 flex-1 mx-3 hidden sm:block" />}
+              {idx < 4 && <div className="h-px bg-slate-200 flex-1 mx-3 hidden sm:block" />}
             </React.Fragment>
           ))}
         </div>
@@ -600,225 +604,254 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       {/* ETAPA 1 — INFORMAÇÕES */}
       {/* ========================================================================= */}
       {currentStep === 1 && (
-        <div className="p-6 sm:p-7 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+          <div className="px-6 sm:px-8 pt-7 pb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-100">
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                Etapa 1 — Informações do Estudo
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-                Defina as bases do teste de usabilidade para qualquer produto ou fluxo digital.
-              </p>
-              <div className="mt-2 inline-flex items-center gap-2 text-xs">
-                <span className={`px-2.5 py-1 rounded-full font-semibold ${moderation === 'moderated' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
-                  {moderation === 'moderated' ? 'Teste moderado' : 'Teste não moderado · ajuda da IA ativa'}
-                </span>
-                {!createdTestResult && (
-                  <button type="button" onClick={() => setModeration(null)} className="text-slate-500 hover:text-blue-600 underline underline-offset-2">
-                    alterar
-                  </button>
-                )}
-              </div>
+              <h2 className="text-lg font-semibold text-slate-900 tracking-tight">Sobre o estudo</h2>
+              <p className="text-sm text-slate-500 mt-0.5">O essencial para gerar o link. O resto é opcional.</p>
             </div>
-
-            {/* Presets rápido */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-semibold text-slate-600 uppercase mr-1">Templates:</span>
-              <button
-                type="button"
-                onClick={() => applyPresetTemplate('saas')}
-                className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-xs font-medium transition-colors"
-              >
-                SaaS B2B
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPresetTemplate('ecom')}
-                className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-xs font-medium transition-colors"
-              >
-                E-commerce
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPresetTemplate('mobile')}
-                className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-xs font-medium transition-colors"
-              >
-                Mobile App
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPresetTemplate('blank')}
-                className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-purple-50 text-slate-700 hover:text-purple-700 border border-slate-200 text-xs font-medium transition-colors"
-              >
-                Em Branco
-              </button>
-            </div>
+            <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${moderation === 'moderated' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
+              {moderation === 'moderated' ? <Users className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+              {moderation === 'moderated' ? 'Moderado' : 'Não moderado · ajuda da IA'}
+              {!createdTestResult && (
+                <button type="button" onClick={() => setModeration(null)} className="font-medium underline underline-offset-2 opacity-70 hover:opacity-100">
+                  alterar
+                </button>
+              )}
+            </span>
           </div>
 
-          <div className="space-y-4 text-xs">
-            {/* 1. URL do Protótipo Navegável (Figma ou Web Deploy) */}
-            <div className="p-4 rounded-xl bg-blue-50/50 border border-blue-200/80 space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-slate-800 font-bold flex items-center gap-1.5">
-                  <Globe className="w-4 h-4 text-blue-600" />
-                  <span>1. URL do Protótipo Navegável (Figma ou Web Deploy) *</span>
+          <div className="divide-y divide-slate-100">
+            {/* Protótipo */}
+            <section className="px-6 sm:px-8 py-6 grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] gap-4 md:gap-8">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Protótipo</div>
+                <p className="text-xs text-slate-500 mt-1">O link que o participante vai navegar (Figma Make ou protótipo publicado).</p>
+              </div>
+              <div className="space-y-1.5">
+                <div className={`flex items-center gap-2 rounded-xl border bg-white px-3 focus-within:ring-2 focus-within:ring-blue-500/15 ${
+                  step1Tried && !prototypeUrl.trim() ? 'border-rose-300' : 'border-slate-200 focus-within:border-blue-500'
+                }`}>
+                  <Globe className="w-4 h-4 text-slate-400 shrink-0" />
+                  <input
+                    type="url"
+                    value={prototypeUrl}
+                    onChange={(e) => {
+                      setPrototypeUrl(e.target.value);
+                      setVerificationPassed(null);
+                    }}
+                    placeholder="https://seu-prototipo.figma.site"
+                    className="flex-1 min-w-0 py-2.5 text-sm text-slate-900 font-mono outline-none bg-transparent"
+                  />
+                  {prototypeUrl.trim() && (
+                    <a href={prototypeUrl.trim()} target="_blank" rel="noreferrer noopener" className="text-slate-400 hover:text-blue-600" title="Abrir em nova aba">
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+                {step1Tried && !prototypeUrl.trim() && <p className="text-xs text-rose-600">Cole o link do protótipo para continuar.</p>}
+              </div>
+            </section>
+
+            {/* Identificação */}
+            <section className="px-6 sm:px-8 py-6 grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] gap-4 md:gap-8">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Identificação</div>
+                <p className="text-xs text-slate-500 mt-1">Como o teste aparece na lista e o que você quer descobrir.</p>
+              </div>
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-600 mb-1.5">Nome do teste</span>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ex.: Simulação de empréstimo com garantia"
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/15 focus:border-blue-500 ${
+                      step1Tried && !name.trim() ? 'border-rose-300' : 'border-slate-200'
+                    }`}
+                  />
                 </label>
-                {isFigmaUrl(prototypeUrl) ? (
-                  <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold">
-                    Figma Navegável
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold">
-                    Web Deploy / Make
-                  </span>
-                )}
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-600 mb-1.5">Objetivo da pesquisa</span>
+                  <textarea
+                    rows={2}
+                    value={researchGoal}
+                    onChange={(e) => setResearchGoal(e.target.value)}
+                    placeholder="Ex.: Entender se o corretor consegue simular sem ajuda e onde trava."
+                    className={`w-full resize-none px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/15 focus:border-blue-500 ${
+                      step1Tried && !researchGoal.trim() ? 'border-rose-300' : 'border-slate-200'
+                    }`}
+                  />
+                </label>
               </div>
-              <input
-                type="text"
-                value={prototypeUrl}
-                onChange={(e) => {
-                  setPrototypeUrl(e.target.value);
-                  setVerificationPassed(null);
-                }}
-                placeholder="https://evil-chess-37482794.figma.site ou https://www.figma.com/proto/..."
-                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 text-xs font-mono outline-none transition-all shadow-2xs"
-              />
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-slate-600">
-                <span>Esta URL é a <strong>Fonte de Verdade</strong> do protótipo real que o participante navegará.</span>
-                {prototypeUrl.trim() && (
-                  <a
-                    href={prototypeUrl.trim()}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1 font-semibold shrink-0"
-                  >
-                    <span>Abrir URL em Nova Aba</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-              </div>
-            </div>
+            </section>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-slate-700 font-semibold mb-1.5">Nome do teste de usabilidade *</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Ex: Plataforma B2B: Redesign de Gestão de Membros"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
-                />
-              </div>
-
+            {/* Participantes */}
+            <section className="px-6 sm:px-8 py-6 grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] gap-4 md:gap-8">
               <div>
-                <label className="block text-slate-700 font-semibold mb-1.5">Categoria de produto</label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
-                >
-                  <option value="SaaS / B2B">SaaS / B2B</option>
-                  <option value="E-commerce">E-commerce</option>
-                  <option value="Mobile App / Fintech">Mobile App / Fintech</option>
-                  <option value="Healthtech">Healthtech</option>
-                  <option value="Geral / Customizado">Geral / Customizado</option>
-                </select>
+                <div className="text-sm font-semibold text-slate-900">Participantes</div>
+                <p className="text-xs text-slate-500 mt-1">Quando completar, o link fecha para novas pessoas.</p>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1.5">Descrição do teste</label>
-              <textarea
-                rows={2}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Breve resumo do contexto, escopo da experiência e público-alvo..."
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1.5">Objetivo da pesquisa de usabilidade *</label>
-              <input
-                type="text"
-                value={researchGoal}
-                onChange={(e) => setResearchGoal(e.target.value)}
-                placeholder="Ex: Avaliar a clareza na conclusão do fluxo sem necessidade de suporte."
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1.5">Produto / Aplicação</label>
-                <input
-                  type="text"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="Ex: Web App / Mobile Experience"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1.5">Pesquisador responsável</label>
-                <input
-                  type="text"
-                  value={researcherName}
-                  onChange={(e) => setResearcherName(e.target.value)}
-                  placeholder="Ex: Staff UX Researcher"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1.5">Quantidade de participantes (clientes) *</label>
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex items-center rounded-xl border border-slate-200 overflow-hidden">
+                  <button type="button" onClick={() => setParticipantLimit(Math.max(1, participantLimit - 1))} className="w-10 h-10 text-slate-500 hover:bg-slate-50 text-lg" aria-label="Menos">
+                    −
+                  </button>
                   <input
                     type="number"
                     min={1}
-                    max={500}
                     value={participantLimit}
-                    onChange={(e) => setParticipantLimit(Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 1)))}
-                    className="w-28 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 text-slate-900 outline-none transition-all"
+                    onChange={(e) => setParticipantLimit(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-16 h-10 text-center text-sm font-semibold text-slate-900 outline-none border-x border-slate-200"
                   />
-                  <span className="text-[11px] text-slate-500 leading-snug">
-                    Cada pessoa que abrir o link informa o nome e recebe um número (1 de {participantLimit}, 2 de {participantLimit}...). Ao
-                    completar {participantLimit}, o link fecha para novos participantes.
-                  </span>
+                  <button type="button" onClick={() => setParticipantLimit(participantLimit + 1)} className="w-10 h-10 text-slate-500 hover:bg-slate-50 text-lg" aria-label="Mais">
+                    +
+                  </button>
                 </div>
+                <div className="flex gap-1.5">
+                  {[5, 10, 20, 50, 100].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setParticipantLimit(n)}
+                      className={`px-3 h-8 rounded-lg text-xs font-semibold ${participantLimit === n ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-slate-400 w-full">Cada pessoa recebe um número: 1 de {participantLimit}, 2 de {participantLimit}…</span>
               </div>
-            </div>
+            </section>
+
+            {/* Detalhes opcionais (sanfona) */}
+            <section className="px-6 sm:px-8 py-4">
+              <button
+                type="button"
+                onClick={() => setShowMoreInfo((o) => !o)}
+                className="w-full flex items-center justify-between text-left py-2"
+                aria-expanded={showMoreInfo}
+              >
+                <span>
+                  <span className="text-sm font-semibold text-slate-900">Mais detalhes</span>
+                  <span className="ml-2 text-xs text-slate-400">opcional · descrição, produto, categoria, pesquisador</span>
+                </span>
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showMoreInfo ? 'rotate-180' : ''}`} />
+              </button>
+              {showMoreInfo && (
+                <div className="pt-3 pb-2 space-y-4">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-slate-500 mr-1">Preencher com um modelo:</span>
+                    {[
+                      ['saas', 'SaaS B2B'],
+                      ['ecom', 'E-commerce'],
+                      ['mobile', 'Mobile App'],
+                      ['blank', 'Limpar tudo']
+                    ].map(([k, l]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => applyPresetTemplate(k as any)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                      >
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-600 mb-1.5">Descrição</span>
+                    <textarea
+                      rows={2}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Contexto, escopo e público do teste"
+                      className="w-full resize-none px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/15 focus:border-blue-500"
+                    />
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <label className="block">
+                      <span className="block text-xs font-medium text-slate-600 mb-1.5">Produto</span>
+                      <input
+                        type="text"
+                        value={productName}
+                        onChange={(e) => setProductName(e.target.value)}
+                        placeholder="Ex.: Cotador Web"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/15 focus:border-blue-500"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="block text-xs font-medium text-slate-600 mb-1.5">Categoria</span>
+                      <select
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value as any)}
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 bg-white outline-none focus:border-blue-500"
+                      >
+                        <option value="SaaS / B2B">SaaS / B2B</option>
+                        <option value="E-commerce">E-commerce</option>
+                        <option value="Mobile App / Fintech">Mobile App / Fintech</option>
+                        <option value="Healthtech">Healthtech</option>
+                        <option value="Geral / Customizado">Geral / Customizado</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="block text-xs font-medium text-slate-600 mb-1.5">Pesquisador</span>
+                      <input
+                        type="text"
+                        value={researcherName}
+                        onChange={(e) => setResearcherName(e.target.value)}
+                        placeholder="Seu nome"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/15 focus:border-blue-500"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+            </section>
           </div>
 
-          {/* Hipóteses do estudo: voltam no resultado com o veredito */}
-          <div className="p-5 rounded-2xl bg-amber-50/40 border border-amber-200/70 space-y-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Lightbulb className="w-4 h-4 text-amber-500" /> Hipóteses do estudo <span className="text-xs font-medium text-slate-500">(até 3, opcional)</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                O que o time espera que aconteça. No resultado, cada hipótese aparece como confirmada, parcial ou refutada, com os números e o que os participantes disseram.
-              </p>
-            </div>
-            <HypothesesEditor value={hypotheses} onChange={setHypotheses} tasks={tasks} />
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors border border-slate-200"
-            >
+          <div className="px-6 sm:px-8 py-4 flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl">
+            <button type="button" onClick={onCancel} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
               Cancelar
             </button>
             <button
               type="button"
-              onClick={() => setCurrentStep(2)}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
+              onClick={() => {
+                setStep1Tried(true);
+                if (prototypeUrl.trim() && name.trim() && researchGoal.trim()) setCurrentStep(2);
+              }}
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold inline-flex items-center gap-1.5"
             >
-              <span>Avançar para Tarefas</span>
-              <ChevronRight className="w-4 h-4" />
+              Continuar <ChevronRight className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Etapa 2 — Hipóteses (opcional) */}
+      {currentStep === 2 && (
+        <div className="rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+          <div className="px-6 sm:px-8 pt-7 pb-5 border-b border-slate-100">
+            <h2 className="text-lg font-semibold text-slate-900 tracking-tight flex items-center gap-2">
+              <Lightbulb className="w-5 h-5 text-amber-500" /> Hipóteses
+            </h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              O que o time espera que aconteça (até 3). No resultado, cada uma aparece como confirmada, parcial ou refutada, com os números e o que os participantes disseram.
+            </p>
+          </div>
+          <div className="px-6 sm:px-8 py-6">
+            <HypothesesEditor value={hypotheses} onChange={setHypotheses} tasks={tasks} />
+          </div>
+          <div className="px-6 sm:px-8 py-4 flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl">
+            <button type="button" onClick={() => setCurrentStep(1)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 inline-flex items-center gap-1">
+              <ChevronLeft className="w-4 h-4" /> Voltar
+            </button>
+            <div className="flex items-center gap-2">
+              {hypotheses.filter((h) => h.statement.trim()).length === 0 && <span className="text-xs text-slate-400">Pode pular e adicionar depois no resultado.</span>}
+              <button type="button" onClick={() => setCurrentStep(3)} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold inline-flex items-center gap-1.5">
+                {hypotheses.filter((h) => h.statement.trim()).length ? 'Continuar' : 'Pular por agora'} <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -826,12 +859,12 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       {/* ========================================================================= */}
       {/* ETAPA 2 — TAREFAS & CAMINHO ESPERADO */}
       {/* ========================================================================= */}
-      {currentStep === 2 && (
+      {currentStep === 3 && (
         <div className="p-6 sm:p-7 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                Etapa 2 — Cadastro de Tarefas & Caminho Esperado
+                Etapa 3 — Tarefas e caminho esperado
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
                 Defina as instruções exibidas ao participante e configure o caminho esperado (<code className="text-blue-600 font-mono">expectedPath[]</code>).
@@ -1103,7 +1136,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
           <div className="flex justify-between gap-3 pt-4 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setCurrentStep(1)}
+              onClick={() => setCurrentStep(2)}
               className="px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -1111,7 +1144,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setCurrentStep(3)}
+              onClick={() => setCurrentStep(4)}
               className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
             >
               <span>Avançar para Métricas</span>
@@ -1124,7 +1157,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       {/* ========================================================================= */}
       {/* ETAPA 3 — CONFIGURAÇÃO DE MÉTRICAS */}
       {/* ========================================================================= */}
-      {currentStep === 3 && (
+      {currentStep === 4 && (
         <MetricsStep
           metrics={metrics}
           setMetrics={setMetrics}
@@ -1135,20 +1168,20 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
           setNpsConfig={setNpsConfig}
           susQuestions={susQuestions}
           setSusQuestions={setSusQuestions}
-          onBack={() => setCurrentStep(2)}
-          onNext={() => setCurrentStep(4)}
+          onBack={() => setCurrentStep(3)}
+          onNext={() => setCurrentStep(5)}
         />
       )}
 
       {/* ========================================================================= */}
       {/* ETAPA 4 — PUBLICAÇÃO & VALIDAÇÃO TÉCNICA DO PROTÓTIPO */}
       {/* ========================================================================= */}
-      {currentStep === 4 && (
+      {currentStep === 5 && (
         <div className="p-6 sm:p-7 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-6">
           <div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-blue-600" />
-              <span>Etapa 4 — Revisar e publicar</span>
+              <span>Etapa 5 — Revisar e publicar</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
               Confira o resumo do teste e publique para gerar o link dos participantes.
@@ -1266,7 +1299,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
               <div className="p-4 rounded-2xl bg-white border border-slate-200 text-xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Tarefas ({tasks.length})</div>
-                  <button type="button" onClick={() => setCurrentStep(2)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                  <button type="button" onClick={() => setCurrentStep(3)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
                     Editar tarefas
                   </button>
                 </div>
@@ -1300,7 +1333,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
               <div className="p-4 rounded-2xl bg-white border border-slate-200 text-xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">O que será medido</div>
-                  <button type="button" onClick={() => setCurrentStep(3)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                  <button type="button" onClick={() => setCurrentStep(4)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
                     Editar métricas
                   </button>
                 </div>
@@ -1335,7 +1368,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 <div className="p-4 rounded-2xl bg-white border border-slate-200 text-xs space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Hipóteses</div>
-                    <button type="button" onClick={() => setCurrentStep(1)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                    <button type="button" onClick={() => setCurrentStep(2)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
                       Editar hipóteses
                     </button>
                   </div>
@@ -1358,9 +1391,9 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   </div>
                   <p className="leading-relaxed">
                     {undetectable.map((i) => `Tarefa ${i + 1}`).join(', ')}: o sistema precisa saber em qual tela cada tarefa termina para avançar sozinho, sem o participante
-                    clicar em nada. Volte à Etapa 2, use “Mapear cenários do protótipo” e grave o caminho até a última tela.
+                    clicar em nada. Volte à Etapa 3 (Tarefas), use “Mapear cenários do protótipo” e grave o caminho até a última tela.
                   </p>
-                  <button type="button" onClick={() => setCurrentStep(2)} className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold">
+                  <button type="button" onClick={() => setCurrentStep(3)} className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold">
                     Ir para o mapeamento
                   </button>
                 </div>
@@ -1370,7 +1403,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
               <div className="flex justify-between gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setCurrentStep(3)}
+                  onClick={() => setCurrentStep(4)}
                   className="px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200"
                 >
                   <ChevronLeft className="w-4 h-4" />

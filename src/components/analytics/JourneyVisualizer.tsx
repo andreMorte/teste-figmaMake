@@ -382,7 +382,7 @@ export const JourneyVisualizer: React.FC<JourneyVisualizerProps> = ({ test, sess
       {!hasMapping && !observed && (
         <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
           Este teste foi criado sem o mapeador de cenários. Para ver as telas reais em cada nó, crie o teste usando
-          <strong> Etapa 2 → Mapear cenários do protótipo</strong>.
+          <strong> Etapa 3 (Tarefas) → Mapear cenários do protótipo</strong>.
         </div>
       )}
 

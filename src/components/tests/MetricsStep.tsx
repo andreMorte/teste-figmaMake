@@ -185,7 +185,7 @@ export const MetricsStep: React.FC<Props> = ({
   return (
     <div className="p-5 sm:p-7 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-8">
       <div>
-        <h2 className="text-lg font-bold text-slate-900 tracking-tight">Etapa 3 — O que medir</h2>
+        <h2 className="text-lg font-bold text-slate-900 tracking-tight">Etapa 4 — O que medir</h2>
         <p className="text-sm text-slate-500 mt-1">
           Escolha o que aparece nos resultados e o que o participante responde ao terminar as tarefas.
         </p>
