@@ -4,6 +4,7 @@ import path from 'path';
 import type { Express } from 'express';
 import type { Pool } from 'pg';
 import { aiVision, aiEngine } from './qualitative';
+import { knowledgeFor } from './visual-knowledge';
 
 type Opts = { pool: Pool | null; dataDir: string };
 
@@ -219,6 +220,18 @@ export function registerVisualRoutes(app: Express, { pool, dataDir }: Opts) {
         }
       }
       if (!out) throw lastErr || new Error('IA sem resposta');
+      // segunda opinião: um revisor confere o parecer contra a tela e o repertório e corta o que for genérico
+      try {
+        const rev = await aiVision(buildCriticPrompt(a, screen, idx, out), m[2], m[1]);
+        const checked = groundExpert(rev.json, screen);
+        if (checked.result.resumo && checked.result.problemas.length + checked.result.funciona_bem.length > 0) {
+          out = checked.result;
+          model = rev.model;
+          out.revisado = true;
+        }
+      } catch (err: any) {
+        console.warn('[Raio-X] revisão do parecer falhou, mantendo a primeira versão:', String(err?.message || err).slice(0, 160));
+      }
       out.model = model;
       out.createdAt = new Date().toISOString();
       a.screens[idx].expert = out;
@@ -282,7 +295,11 @@ MEDIDAS (calculadas pelo sistema, são estimativas de atenção, não eye-tracki
 - Clareza ${met.clarity ?? '—'}/100, Foco ${met.focus ?? '—'}/100, ${met.elementsAboveFold ?? '—'} elementos na primeira dobra, contraste AA ok em ${met.contrastPass ?? '—'}% dos textos
 - Atenção por área: ${aois.join('; ') || 'sem áreas'}
 
+REPERTÓRIO TÉCNICO (é o seu conhecimento de base; use para julgar e para recomendar, mas não o mencione)
+${knowledgeFor(a, s, idx).text}
+
 REGRAS
+- Fundamente cada julgamento no repertório acima e no que está visível. Não mencione livros, autores nem "o repertório"; os princípios podem ser nomeados pelo conceito (ex.: "Lei de Hick", "Prevenção de erros").
 - Português do Brasil, direto, específico, sem jargão vazio.
 - Só afirme o que se vê na imagem ou nos dados. Ao citar um texto da tela, copie exatamente entre aspas.
 - Não invente funcionalidades, dados, telas ou comportamentos. O que não dá para avaliar numa imagem parada (ex.: feedback após clique, tempo de carregamento), diga "não avaliável na captura" e dê nota 0.
@@ -307,6 +324,31 @@ Responda SOMENTE este JSON:
  "estrategia": "o quanto a tela serve ao objetivo do fluxo e ao negócio"
 }
 Inclua as 10 heurísticas de Nielsen e os 8 critérios ergonômicos.`;
+}
+
+function buildCriticPrompt(a: any, s: any, idx: number, draft: any) {
+  const ctx = s.context || {};
+  return `Você é um(a) Design Lead revisando o parecer de outro designer sobre a tela da imagem (tela ${idx + 1} de ${a.screens.length} do fluxo "${a.name}"${a.goal ? `, objetivo: ${a.goal}` : ''}${a.audience ? `, público: ${a.audience}` : ''}).
+Seu papel é tornar o parecer mais certeiro e real. Faça assim:
+1. Corte o que for genérico (vale para qualquer tela), o que não tiver um elemento visível que o comprove e o que for gosto pessoal sem impacto no uso.
+2. Ajuste a severidade quando estiver exagerada ou subestimada (0 a 4, escala de Nielsen).
+3. Torne as recomendações concretas: qual elemento, o que mudar e, se for texto, a frase sugerida em português do Brasil.
+4. Acrescente um problema só se for importante, visível na imagem e tiver ficado de fora.
+5. Revise as notas das heurísticas e dos critérios para que batam com os problemas apontados. Nota 0 = não avaliável na captura.
+6. Não invente nada que não esteja na tela. Ao citar texto da tela, copie exatamente entre aspas.
+
+TEXTO REAL DA TELA
+${String(ctx.text || '').slice(0, 2500)}
+Botões/links: ${(ctx.buttons || []).join(' | ') || 'nenhum'}
+Campos: ${(ctx.fields || []).map((f: any) => f.label || '(sem rótulo)').join(' | ') || 'nenhum'}
+
+REPERTÓRIO TÉCNICO (base para julgar; não o mencione)
+${knowledgeFor(a, s, idx).text}
+
+PARECER A REVISAR
+${JSON.stringify(draft).slice(0, 12000)}
+
+Devolva SOMENTE o parecer revisado, no mesmo formato JSON (mesmos campos), completo.`;
 }
 
 const norm = (t: string) =>
