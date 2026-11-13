@@ -601,3 +601,88 @@ export async function aiText(prompt: string, budgetMs = 25000, temperature = 0.4
   }
   throw lastErr || new Error('IA sem resposta');
 }
+
+// Análise com imagem (Raio-X da interface): a tela capturada + um prompt, resposta em JSON.
+export async function aiVision(prompt: string, imageBase64: string, mimeType = 'image/jpeg', budgetMs = 90000): Promise<{ json: any; model: string }> {
+  const engine = aiEngine();
+  if (!engine) throw new Error('IA não configurada');
+  if (engine === 'claude') {
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
+    const res = await withTimeout(
+      fetch(`${process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model,
+          max_tokens: 8000,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
+                { type: 'text', text: prompt + '\n\nResponda somente com o JSON.' }
+              ]
+            }
+          ]
+        })
+      }),
+      budgetMs,
+      model
+    );
+    const body: any = await res.json();
+    if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
+    const text = String((body.content || []).map((c: any) => c.text || '').join(''));
+    return { json: parseJson(text), model };
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  const discovered = await discoverModels();
+  const full = discovered.filter((m) => !/lite/.test(m));
+  const lite = discovered.filter((m) => /lite/.test(m));
+  const models = [
+    ...new Set(
+      [process.env.GEMINI_MODEL, ...full.slice(0, 2), 'gemini-flash-latest', 'gemini-2.5-flash', ...lite.slice(0, 1), 'gemini-flash-lite-latest'].filter(Boolean) as string[]
+    )
+  ].slice(0, 5);
+  const deadline = Date.now() + budgetMs;
+  let lastErr: any;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const left = deadline - Date.now();
+      if (left < 6000) throw lastErr || new Error('IA sem resposta no tempo limite');
+      const t0 = Date.now();
+      try {
+        const r = await withTimeout(
+          ai.models.generateContent({
+            model,
+            contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: prompt }] }],
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.3,
+              maxOutputTokens: 8192,
+              ...(/^gemini-2\.5-flash(-lite)?$/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+            } as any
+          }),
+          Math.min(60000, left),
+          model
+        );
+        const json = parseJson(r.text || '');
+        logAttempt({ model, ms: Date.now() - t0, ok: true });
+        console.log(`[IA visão] ${model} respondeu em ${Date.now() - t0}ms`);
+        return { json, model };
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || err);
+        logAttempt({ model, ms: Date.now() - t0, ok: false, error: msg.slice(0, 220) });
+        console.warn(`[IA visão] ${model} tentativa ${attempt + 1}: ${msg.slice(0, 160)}`);
+        if (/503|UNAVAILABLE|overload|high demand/i.test(msg) && attempt === 0) {
+          await sleep(2000);
+          continue;
+        }
+        if (/JSON|Unexpected token|Unterminated/i.test(msg) && attempt === 0) continue;
+        if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) throw err;
+        break;
+      }
+    }
+  }
+  throw lastErr || new Error('IA sem resposta');
+}

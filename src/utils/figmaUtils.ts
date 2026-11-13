@@ -102,7 +102,7 @@ export function canInstrumentPrototype(url?: string): boolean {
 
 export function getInstrumentedPrototypeUrl(
   url: string,
-  opts: { testId?: string; trackingId?: string; sessionId?: string; participantId?: string; mode?: 'run' | 'map' } = {}
+  opts: { testId?: string; trackingId?: string; sessionId?: string; participantId?: string; mode?: 'run' | 'map' | 'visual' } = {}
 ): string {
   const params = new URLSearchParams({ url: url.trim() });
   if (opts.testId) params.set('testId', opts.testId);

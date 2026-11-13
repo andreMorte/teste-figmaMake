@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { Pool } from 'pg';
 import { collectQualitative, hashInput, analyzeQualitative, aiEngine, aiStatus, aiText, QualResult } from './qualitative';
+import { registerVisualRoutes } from './visual';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -2178,6 +2179,7 @@ function snapshotMeta(snap: any) {
 
 // Serve UXLab SDK files directly
 app.use('/sdk', express.static(path.join(process.cwd(), 'public/sdk')));
+registerVisualRoutes(app, { pool, dataDir: DATA_DIR });
 
 // =========================================================================
 // PROXY DO PROTÓTIPO (mesma origem) — permite injetar o SDK UXLab
@@ -2241,7 +2243,7 @@ app.get('/api/prototype-runtime', async (req, res) => {
   const trackingId = esc((req.query.trackingId as string) || '');
   const sessionId = esc((req.query.sessionId as string) || '');
   const participantId = esc((req.query.participantId as string) || '');
-  const mode = (req.query.mode as string) === 'map' ? 'map' : 'run';
+  const mode = (req.query.mode as string) === 'map' ? 'map' : (req.query.mode as string) === 'visual' ? 'visual' : 'run';
 
   try {
     let targetUrl = rawUrl.trim();

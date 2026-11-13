@@ -26,14 +26,14 @@
   var trackingId = attr('data-tracking-id', '');
   var sessionId = attr('data-session-id', ''); // atualizado pelo runner quando o participante inicia
   var participantId = attr('data-participant-id', '');
-  var mode = attr('data-mode', 'run'); // 'run' (participante) | 'map' (mapeamento)
+  var mode = attr('data-mode', 'run'); // 'run' (participante) | 'map' (mapeamento) | 'visual' (Raio-X: só captura sob demanda)
 
   window.UXLab = window.UXLab || {
     init: function (config) {
       console.log('[UXLab SDK] init', config);
     }
   };
-  window.UXLab.version = '3.2.0';
+  window.UXLab.version = '3.5.0';
   window.UXLab.getCurrentScreen = function () {
     return currentScene;
   };
@@ -505,7 +505,8 @@
     };
   }
 
-  function captureViewport(scene, attempt) {
+  function captureViewport(scene, attempt, force) {
+    if (mode === 'visual' && !force) return; // Raio-X: captura só quando o painel pede
     scene = scene || currentScene || computeScene();
     attempt = attempt || 1;
     capturedScreens[scene.screenId] = true;
@@ -766,10 +767,226 @@
     };
   }
 
+
+  // ---------------------------------------------------------------------------
+  // Raio-X da interface: captura + inventário visual (posição, tipo, cor, contraste)
+  // ---------------------------------------------------------------------------
+  var colorCanvas = null;
+  var colorCache = {};
+  function toRgb(str) {
+    if (!str || str === 'transparent') return null;
+    if (colorCache[str] !== undefined) return colorCache[str];
+    var out = null;
+    try {
+      if (!colorCanvas) {
+        colorCanvas = document.createElement('canvas');
+        colorCanvas.width = colorCanvas.height = 1;
+      }
+      var cx = colorCanvas.getContext('2d', { willReadFrequently: true });
+      cx.clearRect(0, 0, 1, 1);
+      cx.fillStyle = '#000';
+      cx.fillStyle = str; // aceita rgb, hex, oklch, color(), etc.
+      cx.fillRect(0, 0, 1, 1);
+      var d = cx.getImageData(0, 0, 1, 1).data;
+      out = { r: d[0], g: d[1], b: d[2], a: d[3] / 255 };
+    } catch (e) {}
+    colorCache[str] = out;
+    return out;
+  }
+  function hex(c) {
+    if (!c) return null;
+    var h = function (v) { return ('0' + Math.round(v).toString(16)).slice(-2); };
+    return '#' + h(c.r) + h(c.g) + h(c.b);
+  }
+  function lum(c) {
+    var f = function (v) { v = v / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+  }
+  function ratio(a, b) {
+    if (!a || !b) return null;
+    var l1 = lum(a), l2 = lum(b);
+    return Math.round(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)) * 100) / 100;
+  }
+  // Fundo efetivo: sobe pelos pais até achar cor sólida (ou imagem/gradiente, que não dá para medir)
+  function backgroundOf(el) {
+    for (var n = el, i = 0; n && n.nodeType === 1 && i < 25; n = n.parentElement, i++) {
+      var s = window.getComputedStyle(n);
+      if (s.backgroundImage && s.backgroundImage !== 'none') return { image: true };
+      var c = toRgb(s.backgroundColor);
+      if (c && c.a > 0.55) return { color: c };
+    }
+    return { color: { r: 255, g: 255, b: 255, a: 1 } };
+  }
+  function ownText(el) {
+    var t = '';
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3) t += n.nodeValue;
+    }
+    return clean(t);
+  }
+  function inventory() {
+    var root = getRoot();
+    var sx = window.scrollX || 0, sy = window.scrollY || 0;
+    var out = [];
+    var dlgEl = null;
+    try { dlgEl = findDialog(); } catch (e) {}
+    var all = root.querySelectorAll('*');
+    var limit = Math.min(all.length, 4000);
+    for (var i = 0; i < limit; i++) {
+      var el = all[i];
+      var tag = el.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'IFRAME' || tag === 'TEMPLATE') continue;
+      if (el.closest('[data-uxlab-ignore]')) continue;
+      var r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) continue;
+      var kind = null, label = '';
+      var role = el.getAttribute('role') || '';
+      var insideAction = el.parentElement && el.parentElement.closest('button,a[href],[role=button],input,select,textarea,label');
+      if (/^(INPUT|SELECT|TEXTAREA)$/.test(tag) || /combobox|textbox|slider|checkbox|radio|switch/.test(role)) {
+        if (tag === 'INPUT' && /hidden/.test(el.type)) continue;
+        kind = /submit|button/.test(el.type || '') ? 'acao' : 'campo';
+        label = kind === 'acao' ? labelOf(el) : fieldLabel(el);
+      } else if (tag === 'BUTTON' || (tag === 'A' && el.getAttribute('href') !== null) || role === 'button' || role === 'tab' || role === 'link') {
+        if (insideAction) continue;
+        kind = 'acao';
+        label = labelOf(el);
+      } else if (tag === 'IMG' || tag === 'PICTURE' || tag === 'VIDEO' || tag === 'CANVAS') {
+        if (insideAction && r.width * r.height < 4000) continue;
+        kind = r.width * r.height < 2500 ? 'icone' : 'imagem';
+        label = el.getAttribute('alt') || '';
+      } else if (tag === 'svg' || tag === 'SVG') {
+        if (insideAction) continue;
+        if (el.parentElement && el.parentElement.closest('svg')) continue;
+        kind = r.width * r.height < 2500 ? 'icone' : 'imagem';
+        label = el.getAttribute('aria-label') || '';
+      } else {
+        var ot = ownText(el);
+        if (ot && ot.length > 1 && !insideAction) {
+          kind = 'texto';
+          label = clean(el.innerText || ot);
+        } else {
+          var bi = window.getComputedStyle(el).backgroundImage;
+          if (bi && /url\(/.test(bi) && r.width * r.height > 6000) kind = 'imagem';
+        }
+      }
+      if (!kind) continue;
+      if (!isVisible(el)) continue;
+      var st = window.getComputedStyle(el);
+      if (kind === 'texto') {
+        // caixa justa ao texto (um <p> ocupa a largura toda, o texto não)
+        try {
+          var rg = document.createRange();
+          rg.selectNodeContents(el);
+          var tr = rg.getBoundingClientRect();
+          if (tr.width > 2 && tr.height > 2) r = tr;
+        } catch (e) {}
+      }
+      var item = { k: kind, x: Math.round(r.left + sx), y: Math.round(r.top + sy), w: Math.round(r.width), h: Math.round(r.height), t: clean(label).slice(0, 70), tag: tag.toLowerCase() };
+      if (dlgEl) item.dl = dlgEl.contains(el) ? 1 : 0; // dentro do diálogo aberto?
+      if (kind === 'texto' || kind === 'acao' || kind === 'campo') {
+        var fg = toRgb(st.color);
+        var bg = backgroundOf(kind === 'texto' ? el.parentElement || el : el);
+        item.fs = Math.round(parseFloat(st.fontSize) || 0);
+        item.fw = parseInt(st.fontWeight, 10) || 400;
+        item.fg = hex(fg);
+        if (bg.image) item.bgImage = true;
+        else {
+          item.bg = hex(bg.color);
+          item.cr = ratio(fg, bg.color);
+        }
+        if (/^H[1-3]$/.test(tag)) item.hd = Number(tag.slice(1));
+      }
+      if (kind === 'acao') {
+        var own = toRgb(st.backgroundColor);
+        if (own && own.a > 0.55) {
+          var pageBg = backgroundOf(el.parentElement || el);
+          item.filled = true;
+          item.fillContrast = pageBg.color ? ratio(own, pageBg.color) : null;
+          var mx = Math.max(own.r, own.g, own.b), mn = Math.min(own.r, own.g, own.b);
+          item.sat = mx ? Math.round(((mx - mn) / mx) * 100) / 100 : 0;
+        }
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') item.disabled = true;
+      }
+      out.push(item);
+    }
+    // os maiores primeiro; corta para não pesar
+    out.sort(function (a, b) { return b.w * b.h - a.w * a.h; });
+    return out.slice(0, 380);
+  }
+  function visualScan(requestId) {
+    var reply = function (extra) {
+      var msg = { type: 'UXLAB_VISUAL_RESULT', requestId: requestId };
+      for (var k in extra) msg[k] = extra[k];
+      sendToParent(msg);
+    };
+    if (typeof window.html2canvas !== 'function') return reply({ error: 'html2canvas indisponível' });
+    var scene = null, ctx = null, items = [];
+    try { scene = computeScene(); } catch (e) {}
+    try { ctx = readScreen(); } catch (e) {}
+    try { items = inventory(); } catch (e) { reportDiagnostic('visual_inventory_failed', { error: String(e) }); }
+    var dialogBox = null;
+    try {
+      var dlg = findDialog();
+      if (dlg) {
+        // o cartão do diálogo (não o fundo escurecido que cobre a tela inteira)
+        var card = dlg;
+        var dr = dlg.getBoundingClientRect();
+        if (dr.width >= window.innerWidth * 0.95 && dr.height >= window.innerHeight * 0.9) {
+          var kids = dlg.querySelectorAll('*');
+          for (var q = 0; q < kids.length && q < 200; q++) {
+            var kr = kids[q].getBoundingClientRect();
+            if (kr.width > 120 && kr.height > 60 && kr.width < dr.width * 0.95 && isVisible(kids[q])) { card = kids[q]; break; }
+          }
+        }
+        var cr2 = card.getBoundingClientRect();
+        dialogBox = { x: Math.round(cr2.left + window.scrollX), y: Math.round(cr2.top + window.scrollY), w: Math.round(cr2.width), h: Math.round(cr2.height) };
+      }
+    } catch (e) {}
+    var doc = docSize();
+    var capH = Math.min(doc.h, MAX_CAPTURE_HEIGHT);
+    var go = function (scale) {
+      return window.html2canvas(document.body, {
+        useCORS: true, allowTaint: false, logging: false, scale: scale, imageTimeout: 5000,
+        ignoreElements: function (el) { return el.tagName === 'IFRAME' || (el.hasAttribute && el.hasAttribute('data-uxlab-ignore')); },
+        x: 0, y: 0, scrollX: 0, scrollY: 0, width: doc.w, height: capH, windowWidth: window.innerWidth, windowHeight: window.innerHeight
+      });
+    };
+    var hi = doc.w < 700 ? 2 : 1; // celular: captura em 2x para a imagem não ficar borrada
+    go(hi)
+      .catch(function () { return go(hi === 2 ? 1 : 0.6); })
+      .then(function (canvas) {
+        var ratioW = Math.min(1, 1280 / canvas.width);
+        var c = document.createElement('canvas');
+        c.width = Math.round(canvas.width * ratioW);
+        c.height = Math.round(canvas.height * ratioW);
+        c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+        reply({
+          image: c.toDataURL('image/jpeg', 0.82),
+          imageWidth: c.width,
+          imageHeight: c.height,
+          docWidth: doc.w,
+          docHeight: doc.h,
+          capturedHeight: capH,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          scene: scene ? { screenId: scene.screenId, screenName: scene.screenName, title: scene.title, stepLabel: scene.stepLabel } : null,
+          context: ctx,
+          elements: items,
+          dialog: dialogBox,
+          url: location.pathname + location.search + location.hash
+        });
+      })
+      .catch(function (err) {
+        reply({ error: (err && err.message) || 'Falha na captura' });
+      });
+  }
+
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || typeof d !== 'object') return;
-    if (d.type === 'UXLAB_TRIGGER_CAPTURE') captureViewport(currentScene);
+    if (d.type === 'UXLAB_TRIGGER_CAPTURE') captureViewport(currentScene, 1, true);
+    if (d.type === 'UXLAB_VISUAL_SCAN') visualScan(d.requestId);
     if (d.type === 'UXLAB_READ_SCREEN') {
       var ctx;
       try {

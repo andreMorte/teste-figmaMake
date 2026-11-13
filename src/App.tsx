@@ -7,12 +7,30 @@ import { ParticipantDetail } from './components/participants/ParticipantDetail';
 import { QualitativeAnalysis } from './components/analytics/QualitativeAnalysis';
 import { UsabilityTest } from './types';
 import { getTests, deleteTest } from './services/dataService';
-import { FlaskConical, Plus, ChevronRight, LayoutList } from 'lucide-react';
+import { FlaskConical, Plus, ChevronRight, LayoutList, ScanEye, ClipboardList } from 'lucide-react';
+import { VisualApp } from './visual/VisualApp';
 
 type View = 'home' | 'create-test' | 'test-detail' | 'participant' | 'qualitative' | 'runner';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
+  // Seções do topo: testes de usabilidade | Raio-X da interface (análise visual do protótipo)
+  const [section, setSection] = useState<'tests' | 'visual'>(() => (typeof window !== 'undefined' && window.location.hash.startsWith('#raio-x') ? 'visual' : 'tests'));
+  const openSection = (next: 'tests' | 'visual') => {
+    if (next === section) {
+      if (next === 'tests') requestHome();
+      return;
+    }
+    if (next === 'tests' && typeof window !== 'undefined') window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (next === 'visual' && currentView === 'create-test') {
+      setLeaveConfirm(true);
+      setPendingSection(true);
+      return;
+    }
+    setSection(next);
+    if (next === 'tests') goHome();
+  };
+  const [pendingSection, setPendingSection] = useState(false);
   const [tests, setTests] = useState<UsabilityTest[]>([]);
   const [selectedTestId, setSelectedTestId] = useState<string>('');
   const [runnerTestId, setRunnerTestId] = useState<string>('');
@@ -59,6 +77,10 @@ export default function App() {
   const goHome = () => {
     setCurrentView('home');
     setLeaveConfirm(false);
+    if (pendingSection) {
+      setPendingSection(false);
+      setSection('visual');
+    }
     refreshTests();
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
   };
@@ -102,7 +124,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
       {/* Barra superior mínima: marca, onde estou, ação principal */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 print:hidden">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-3">
           <button type="button" onClick={requestHome} className="flex items-center gap-2 shrink-0" title="Ir para os testes">
             <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center">
@@ -111,13 +133,34 @@ export default function App() {
             <span className="text-sm font-semibold text-slate-900">UX Test Lab</span>
           </button>
 
+          {/* Menu principal */}
+          <nav className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 shrink-0" aria-label="Seções">
+            <button
+              type="button"
+              onClick={() => openSection('tests')}
+              aria-current={section === 'tests' ? 'page' : undefined}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${section === 'tests' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              <ClipboardList className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Testes de usabilidade</span><span className="sm:hidden">Testes</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openSection('visual')}
+              aria-current={section === 'visual' ? 'page' : undefined}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${section === 'visual' ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              <ScanEye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Raio-X da interface</span><span className="sm:hidden">Raio-X</span>
+            </button>
+          </nav>
+
           {/* Caminho atual (heurística: visibilidade e liberdade para voltar) */}
-          <nav className="flex items-center gap-1 text-sm text-slate-500 min-w-0">
+          {section === 'tests' && (
+          <nav className="hidden md:flex items-center gap-1 text-sm text-slate-500 min-w-0">
             <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
             <button type="button" onClick={requestHome} className={`hover:text-slate-900 ${currentView === 'home' ? 'text-slate-900 font-medium' : ''}`}>
               Testes
             </button>
-            {currentView === 'create-test' && (
+            {section === 'tests' && currentView === 'create-test' && (
               <>
                 <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
                 <span className="text-slate-900 font-medium">Novo teste</span>
@@ -148,10 +191,11 @@ export default function App() {
               </>
             )}
           </nav>
+          )}
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
             {!serverOnline && <span className="text-xs text-rose-600 font-medium">Servidor indisponível</span>}
-            {currentView !== 'home' && (
+            {section === 'tests' && currentView !== 'home' && (
               <button
                 type="button"
                 onClick={requestHome}
@@ -162,7 +206,7 @@ export default function App() {
                 <LayoutList className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Todos os testes</span>
               </button>
             )}
-            {currentView !== 'create-test' && currentView !== 'home' && (
+            {section === 'tests' && currentView !== 'create-test' && currentView !== 'home' && (
               <button
                 type="button"
                 onClick={() => setCurrentView('create-test')}
@@ -175,8 +219,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-        {currentView === 'home' &&
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 print:p-0 print:max-w-none">
+        {section === 'visual' && <VisualApp />}
+        {section === 'tests' && currentView === 'home' &&
           (loaded ? (
             <HomeView
               tests={tests}
@@ -191,7 +236,7 @@ export default function App() {
             <div className="py-24 text-center text-sm text-slate-400">Carregando testes...</div>
           ))}
 
-        {currentView === 'create-test' && (
+        {section === 'tests' && currentView === 'create-test' && (
           <CreateTestWizard
             onSuccess={async (newTest) => {
               await refreshTests();
@@ -206,7 +251,7 @@ export default function App() {
           />
         )}
 
-        {currentView === 'test-detail' && selectedTestId && (
+        {section === 'tests' && currentView === 'test-detail' && selectedTestId && (
           <TestDetailLayout
             testId={selectedTestId}
             onNavigate={(view, id) => {
@@ -229,7 +274,7 @@ export default function App() {
           />
         )}
 
-        {currentView === 'qualitative' && selectedTestId && (
+        {section === 'tests' && currentView === 'qualitative' && selectedTestId && (
           <QualitativeAnalysis
             testId={selectedTestId}
             testName={selectedTest?.name}
@@ -238,7 +283,7 @@ export default function App() {
           />
         )}
 
-        {currentView === 'participant' && selectedTestId && participantKey && (
+        {section === 'tests' && currentView === 'participant' && selectedTestId && participantKey && (
           <ParticipantDetail
             testId={selectedTestId}
             participantKey={participantKey}
@@ -250,7 +295,7 @@ export default function App() {
       </main>
 
       {leaveConfirm && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4" onClick={() => setLeaveConfirm(false)}>
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4" onClick={() => (setLeaveConfirm(false), setPendingSection(false))}>
           <div role="dialog" aria-modal="true" className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="space-y-1">
               <div className="text-base font-semibold text-slate-900">Sair da criação do teste?</div>
