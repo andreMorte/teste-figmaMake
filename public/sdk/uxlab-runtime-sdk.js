@@ -26,14 +26,14 @@
   var trackingId = attr('data-tracking-id', '');
   var sessionId = attr('data-session-id', ''); // atualizado pelo runner quando o participante inicia
   var participantId = attr('data-participant-id', '');
-  var mode = attr('data-mode', 'run'); // 'run' (participante) | 'map' (mapeamento) | 'visual' (Raio-X: só captura sob demanda)
+  var mode = attr('data-mode', 'run'); // 'run' (participante) | 'map' (mapeamento) | 'visual' (Raio-X) | 'preview' (revisão do design: nada é registrado)
 
   window.UXLab = window.UXLab || {
     init: function (config) {
       console.log('[UXLab SDK] init', config);
     }
   };
-  window.UXLab.version = '3.5.0';
+  window.UXLab.version = '3.6.0';
   window.UXLab.getCurrentScreen = function () {
     return currentScene;
   };
@@ -491,6 +491,7 @@
     } catch (e) {}
   }
   function reportDiagnostic(kind, data) {
+    if (mode === 'preview') return; // revisão do design: nada é registrado
     try {
       var body = { kind: kind, testId: testId, sessionId: currentSessionId(), mode: mode, url: location.pathname, ua: navigator.userAgent, viewport: [window.innerWidth, window.innerHeight], data: data, timestamp: new Date().toISOString() };
       fetch('/api/diagnostics', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(function () {});
@@ -506,7 +507,7 @@
   }
 
   function captureViewport(scene, attempt, force) {
-    if (mode === 'visual' && !force) return; // Raio-X: captura só quando o painel pede
+    if ((mode === 'visual' || mode === 'preview') && !force) return; // Raio-X: só quando o painel pede; revisão do design: nunca
     scene = scene || currentScene || computeScene();
     attempt = attempt || 1;
     capturedScreens[scene.screenId] = true;

@@ -171,7 +171,8 @@ const CaptureStudio: React.FC<{
     return () => ro.disconnect();
   }, []);
   const scale = Math.min(1, (boxW - 2) / dev.w);
-  const frameH = Math.min(dev.h, Math.max(560, typeof window !== 'undefined' ? (window.innerHeight - 190) / scale : dev.h));
+  // altura real do dispositivo: define onde fica a primeira dobra (não depende do tamanho da janela de quem captura)
+  const frameH = dev.h;
 
   const scan = useCallback(
     (reason: 'auto' | 'manual') =>

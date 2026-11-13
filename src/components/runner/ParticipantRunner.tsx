@@ -29,6 +29,7 @@ import {
 } from '../../utils/figmaUtils';
 import {
   Play,
+  Eye,
   CheckCircle2,
   X,
   AlertCircle,
@@ -65,6 +66,8 @@ interface ParticipantRunnerProps {
   testId: string;
   overridePrototypeUrl?: string;
   onExit: () => void;
+  /** Link de teste do design: mesma jornada, mas nada é registrado (sem sessão, cliques, erros, mapa de calor). */
+  preview?: boolean;
 }
 
 export type RuntimeLifecycle =
@@ -106,7 +109,9 @@ type SavedRun = {
   at?: number;
 };
 const runKey = (testId: string) => `uxlab-run:${testId}`;
+let PREVIEW_MODE = false; // revisão do design: não guarda nem retoma progresso
 function readRun(testId: string): SavedRun | null {
+  if (PREVIEW_MODE) return null;
   try {
     const raw = localStorage.getItem(runKey(testId));
     return raw ? (JSON.parse(raw) as SavedRun) : null;
@@ -115,12 +120,14 @@ function readRun(testId: string): SavedRun | null {
   }
 }
 function saveRun(testId: string, patch: SavedRun) {
+  if (PREVIEW_MODE) return;
   try {
     const cur = readRun(testId) || {};
     localStorage.setItem(runKey(testId), JSON.stringify({ ...cur, ...patch, at: Date.now() }));
   } catch {}
 }
 function clearRun(testId: string) {
+  if (PREVIEW_MODE) return;
   try {
     localStorage.removeItem(runKey(testId));
   } catch {}
@@ -172,15 +179,52 @@ function isAutoCompletable(test: UsabilityTest, task: TestTask): boolean {
   return !!taskEndScreen(test, test.tasks.indexOf(task));
 }
 
+
+// Serviços do player. Na revisão do design tudo é local: nada vai para o servidor.
+const realSvc = { createSession, trackEvent, completeTask, completeSession, getTestSlots, saveSusResponse, updateTestPrototypeUrl, resumeSession, saveScreenSnapshot };
+const previewSvc: typeof realSvc = {
+  createSession: (async (testId: string, participantName: string) =>
+    ({
+      sessionId: 'REVISAO',
+      participantId: 'REVISAO',
+      participantNumber: 0,
+      testId,
+      participantName,
+      participantType: 'human',
+      status: 'Em andamento',
+      startTime: new Date().toISOString(),
+      durationSeconds: 0,
+      tasksCompleted: 0,
+      totalTasks: 0,
+      successRate: 0,
+      clickCount: 0,
+      errorCount: 0,
+      returnCount: 0,
+      events: [],
+      actualPaths: {}
+    }) as ParticipantSession) as any,
+  trackEvent: (async (e: any) => ({ ...e, eventId: 'REVISAO', timestamp: new Date().toISOString() })) as any,
+  completeTask: (async () => null) as any,
+  completeSession: (async () => {}) as any,
+  getTestSlots: (async () => null) as any,
+  saveSusResponse: (async (sessionId: string, testId: string, answers: any) => ({ sessionId, testId, answers, computedScore: 0, submittedAt: new Date().toISOString() })) as any,
+  updateTestPrototypeUrl: (async () => null) as any,
+  resumeSession: (async () => null) as any,
+  saveScreenSnapshot: ((snap: any) => snap) as any
+};
+
 export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   testId,
   overridePrototypeUrl,
-  onExit
+  onExit,
+  preview = false
 }) => {
+  PREVIEW_MODE = preview;
+  const svc = preview ? previewSvc : realSvc;
   const [test, setTest] = useState<UsabilityTest | null>(null);
   const [session, setSession] = useState<ParticipantSession | null>(null);
   const [step, setStep] = useState<RunnerStep>('task_running');
-  const [participantName, setParticipantName] = useState('');
+  const [participantName, setParticipantName] = useState(preview ? 'Revisão do design' : '');
   // Jornada só começa quando o participante informa o nome e clica em "Iniciar teste"
   const [journeyStarted, setJourneyStarted] = useState(false);
   const [startingJourney, setStartingJourney] = useState(false);
@@ -333,7 +377,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
             setStep('closed');
             return;
           }
-          const resumed = await resumeSession(saved.sessionId);
+          const resumed = await svc.resumeSession(saved.sessionId);
           if (isCancelled) return;
           if (!resumed) {
             clearRun(finalTest.id);
@@ -360,7 +404,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
               if (saved.pendingStart) {
                 const nextTask = finalTest.tasks[idx];
                 saveRun(finalTest.id, { pendingStart: false });
-                void trackEvent({
+                void svc.trackEvent({
                   sessionId: resumed.sessionId,
                   testId: finalTest.id,
                   taskId: nextTask.id,
@@ -396,7 +440,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const realEmbedUrl = useMemo(() => {
     if (!test?.prototypeUrl) return '';
     if (useInstrumentedProxy && canInstrumentPrototype(test.prototypeUrl)) {
-      return getInstrumentedPrototypeUrl(test.prototypeUrl, { testId: test.id, trackingId: test.trackingId });
+      return preview ? getInstrumentedPrototypeUrl(test.prototypeUrl, { mode: 'preview' }) : getInstrumentedPrototypeUrl(test.prototypeUrl, { testId: test.id, trackingId: test.trackingId });
     }
     return toFigmaEmbedUrl(test.prototypeUrl);
   }, [test?.prototypeUrl, test?.id, test?.trackingId, useInstrumentedProxy]);
@@ -456,7 +500,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         );
 
         if (session && test) {
-          trackEvent({
+          svc.trackEvent({
             sessionId: session.sessionId,
             testId: test.id,
             taskId: test.tasks[currentTaskIndex]?.id,
@@ -510,7 +554,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         };
 
         // o SDK já salvou a captura no servidor (mesma origem); aqui só atualiza a tela local
-        saveScreenSnapshot(snap, false);
+        svc.saveScreenSnapshot(snap, false);
         setLatestSnapshot(snap);
 
         setPipelineSteps((prev) =>
@@ -529,7 +573,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         setClickCounter((c) => c + 1);
         if (session && test) {
           const targetScreen = data.screenId || detectedScreenId;
-          trackEvent({
+          svc.trackEvent({
             sessionId: session.sessionId,
             testId: test.id,
             taskId: test.tasks[currentTaskIndex]?.id,
@@ -575,7 +619,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   useEffect(() => {
     if (!test?.id || journeyStarted) return;
     let alive = true;
-    getTestSlots(test.id).then((s) => alive && s && setSlots(s));
+    svc.getTestSlots(test.id).then((s) => alive && s && setSlots(s));
     return () => {
       alive = false;
     };
@@ -628,7 +672,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       if (step === 'task_running' && session && test) {
         setClickCounter((c) => c + 1);
         const currentTask = test.tasks[currentTaskIndex];
-        trackEvent({
+        svc.trackEvent({
           sessionId: session.sessionId,
           testId: test.id,
           taskId: currentTask ? currentTask.id : undefined,
@@ -649,7 +693,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   // Start Session Handler
   const handleStartTest = async () => {
     if (!test) return;
-    const newSession = await createSession(
+    const newSession = await svc.createSession(
       test.id,
       participantName || 'Participante Anônimo',
       'human'
@@ -662,7 +706,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     // Track SESSION_START & TASK_START
     const firstTask = test.tasks[0];
     if (firstTask) {
-      await trackEvent({
+      await svc.trackEvent({
         sessionId: newSession.sessionId,
         testId: test.id,
         taskId: firstTask.id,
@@ -684,7 +728,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     setClickCounter((c) => c + 1);
     const currentTask = test.tasks[currentTaskIndex];
 
-    await trackEvent({
+    await svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       taskId: currentTask ? currentTask.id : undefined,
@@ -709,7 +753,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const handleSavePrototypeUrl = async () => {
     if (!test) return;
     const cleanUrl = tempPrototypeUrl.trim();
-    await updateTestPrototypeUrl(test.id, cleanUrl);
+    await svc.updateTestPrototypeUrl(test.id, cleanUrl);
     setTest((prev) => (prev ? { ...prev, prototypeUrl: cleanUrl } : null));
     setIframeLoaded(false);
     setRuntimeError(null);
@@ -726,7 +770,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     if (!currentTask || completingTaskRef.current) return;
     completingTaskRef.current = true;
 
-    await trackEvent({
+    await svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       taskId: currentTask ? currentTask.id : undefined,
@@ -736,7 +780,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       durationMs: taskElapsedSeconds * 1000
     });
 
-    await completeTask(session.sessionId, currentTask.id, true);
+    await svc.completeTask(session.sessionId, currentTask.id, true);
 
     // progresso salvo: um F5 agora já começa na próxima tarefa (ou nas perguntas)
     const hasNext = currentTaskIndex + 1 < test.tasks.length;
@@ -760,7 +804,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     if (!nextTask) return;
     setCurrentTaskIndex(nextIdx);
     saveRun(test.id, { taskIndex: nextIdx, pendingStart: false });
-    await trackEvent({
+    await svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       taskId: nextTask.id,
@@ -777,7 +821,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     const hasCustom = test.metricConfig.customQuestions !== false && (test.customQuestions || []).length > 0;
     if (hasCustom || test.metricConfig.nps) {
       setStep('custom_survey');
-      await trackEvent({
+      await svc.trackEvent({
         sessionId: session.sessionId,
         testId: test.id,
         screen: 'custom-survey',
@@ -786,7 +830,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       });
     } else if (test.metricConfig.sus) {
       setStep('sus');
-      await trackEvent({
+      await svc.trackEvent({
         sessionId: session.sessionId,
         testId: test.id,
         screen: 'sus-questionnaire',
@@ -794,7 +838,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         currentScreen: 'sus'
       });
     } else {
-      await completeSession(session.sessionId);
+      await svc.completeSession(session.sessionId);
       setStep('completed');
     }
   };
@@ -805,7 +849,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     const currentTask = test.tasks[currentTaskIndex];
     if (!currentTask || completingTaskRef.current) return;
     completingTaskRef.current = true;
-    await trackEvent({
+    await svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       taskId: currentTask.id,
@@ -815,7 +859,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       durationMs: taskElapsedSeconds * 1000,
       metadata: { comment: difficultyComment || 'Participante não conseguiu concluir a tarefa' }
     });
-    await completeTask(session.sessionId, currentTask.id, false);
+    await svc.completeTask(session.sessionId, currentTask.id, false);
     setShowDifficultyModal(false);
     setDifficultyComment('');
     setTaskDoneModal({ kind: currentTaskIndex + 1 < test.tasks.length ? 'next' : 'final', finishedIdx: currentTaskIndex });
@@ -832,7 +876,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     try {
       let sess;
       try {
-        sess = await createSession(test.id, name, 'human');
+        sess = await svc.createSession(test.id, name, 'human');
       } catch (err: any) {
         if (err?.code === 'TEST_FULL') {
           setStartError(err.message);
@@ -854,7 +898,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
       saveRun(test.id, { sessionId: sess.sessionId, name, taskIndex: 0, pendingStart: false, step: 'task_running', customAnswers: {} });
       const firstTask = test.tasks[0];
       if (firstTask) {
-        await trackEvent({
+        await svc.trackEvent({
           sessionId: sess.sessionId,
           testId: test.id,
           taskId: firstTask.id,
@@ -930,7 +974,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     setAiChat((c) => [...c, { q, a: answer }]);
     setAiLoading(false);
     // fica registrado: o pesquisador vê quem precisou de ajuda, em qual tela e o que perguntou
-    void trackEvent({
+    void svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       taskId: task?.id,
@@ -965,7 +1009,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     if (!session || !test) return;
     if (missingRequired > 0) return;
 
-    await trackEvent({
+    await svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       screen: 'custom-survey-finish',
@@ -976,7 +1020,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
 
     if (test.metricConfig.sus) {
       setStep('sus');
-      await trackEvent({
+      await svc.trackEvent({
         sessionId: session.sessionId,
         testId: test.id,
         screen: 'sus-questionnaire',
@@ -984,7 +1028,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         currentScreen: 'sus'
       });
     } else {
-      await completeSession(session.sessionId);
+      await svc.completeSession(session.sessionId);
       setStep('completed');
     }
   };
@@ -994,7 +1038,7 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     if (!session || !test) return;
     const currentTask = test.tasks[currentTaskIndex];
 
-    await trackEvent({
+    await svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       taskId: currentTask ? currentTask.id : undefined,
@@ -1027,13 +1071,13 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
     const finalScore = (oddSum + evenSum) * 2.5;
     setComputedSus(finalScore);
 
-    await saveSusResponse(
+    await svc.saveSusResponse(
       session.sessionId,
       test.id,
       susAnswers as [number, number, number, number, number, number, number, number, number, number]
     );
 
-    await trackEvent({
+    await svc.trackEvent({
       sessionId: session.sessionId,
       testId: test.id,
       screen: 'sus-finished',
@@ -2028,6 +2072,22 @@ Quando você chegar ao fim de cada tarefa, o sistema percebe e avança sozinho.<
         </div>
       )}
 
+      {/* Revisão do design: aviso fixo de que nada é registrado */}
+      {preview && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 rounded-full bg-amber-400 text-amber-950 shadow-lg pl-3 pr-1.5 py-1 text-[11px] font-semibold">
+          <Eye className="w-3.5 h-3.5" />
+          <span>Teste do design · nada é registrado</span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="ml-1 rounded-full bg-amber-950/10 hover:bg-amber-950/20 px-2 py-0.5"
+            title="Recomeçar a revisão do início"
+          >
+            Recomeçar
+          </button>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* 4. TELA DE SUCESSO & AGRADECIMENTO */}
       {/* ========================================================================= */}
@@ -2041,7 +2101,7 @@ Quando você chegar ao fim de cada tarefa, o sistema percebe e avança sozinho.<
               <h2 id="thanks-title" className="text-xl font-semibold text-slate-900">
                 Obrigado pelas respostas!
               </h2>
-              <p className="text-sm text-slate-500">Sua participação foi registrada com sucesso.</p>
+              <p className="text-sm text-slate-500">{preview ? 'Revisão do design: nada foi registrado nos resultados.' : 'Sua participação foi registrada com sucesso.'}</p>
             </div>
             <button
               type="button"
@@ -2076,6 +2136,15 @@ Quando você chegar ao fim de cada tarefa, o sistema percebe e avança sozinho.<
               <div className="inline-flex px-4 py-2 rounded-full bg-white/10 border border-white/15 text-base sm:text-lg text-cyan-100">{test.name}</div>
             )}
             <p className="text-sm text-white/60">Você já pode fechar esta janela.</p>
+            {preview && (
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-5 py-2.5 rounded-xl bg-white text-slate-900 text-sm font-semibold hover:bg-cyan-50"
+              >
+                Revisar a jornada de novo
+              </button>
+            )}
           </div>
         </div>
       )}

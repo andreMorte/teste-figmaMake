@@ -10,7 +10,7 @@ import { getTests, deleteTest } from './services/dataService';
 import { FlaskConical, Plus, ChevronRight, LayoutList, ScanEye, ClipboardList } from 'lucide-react';
 import { VisualApp } from './visual/VisualApp';
 
-type View = 'home' | 'create-test' | 'test-detail' | 'participant' | 'qualitative' | 'runner';
+type View = 'home' | 'create-test' | 'edit-test' | 'test-detail' | 'participant' | 'qualitative' | 'runner';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
@@ -22,7 +22,7 @@ export default function App() {
       return;
     }
     if (next === 'tests' && typeof window !== 'undefined') window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    if (next === 'visual' && currentView === 'create-test') {
+    if (next === 'visual' && (currentView === 'create-test' || currentView === 'edit-test')) {
       setLeaveConfirm(true);
       setPendingSection(true);
       return;
@@ -35,10 +35,12 @@ export default function App() {
   const [selectedTestId, setSelectedTestId] = useState<string>('');
   const [runnerTestId, setRunnerTestId] = useState<string>('');
   const [runnerPrototypeUrl, setRunnerPrototypeUrl] = useState<string>('');
+  const [runnerPreview, setRunnerPreview] = useState(false); // link de teste do design (nada é registrado)
   const [serverOnline, setServerOnline] = useState<boolean>(true);
   const [loaded, setLoaded] = useState(false);
   const [participantKey, setParticipantKey] = useState<string>('');
   const [participantName, setParticipantName] = useState<string>('');
+  const [editingTest, setEditingTest] = useState<UsabilityTest | null>(null);
 
   // Carrega os testes e detecta link de participante (/run/ID ou ?test=ID)
   useEffect(() => {
@@ -48,8 +50,9 @@ export default function App() {
         const testFromQuery = params.get('test') || params.get('run') || params.get('share') || params.get('runner');
         const protoFromQuery = params.get('p') || params.get('proto') || params.get('prototype');
         if (protoFromQuery) setRunnerPrototypeUrl(protoFromQuery);
-        const pathMatch = window.location.pathname.match(/^\/(?:run|share)\/([^/]+)/);
-        const runId = testFromQuery || (pathMatch ? decodeURIComponent(pathMatch[1]) : '');
+        const pathMatch = window.location.pathname.match(/^\/(run|share|revisao)\/([^/]+)/);
+        const runId = testFromQuery || (pathMatch ? decodeURIComponent(pathMatch[2]) : '');
+        if (pathMatch?.[1] === 'revisao' || params.has('revisao')) setRunnerPreview(true);
         if (runId) {
           setRunnerTestId(runId);
           setCurrentView('runner');
@@ -88,7 +91,7 @@ export default function App() {
   // Voltar para a lista de testes de qualquer página. Na criação, confirma antes (o teste ainda não foi salvo).
   const [leaveConfirm, setLeaveConfirm] = useState(false);
   const requestHome = () => {
-    if (currentView === 'create-test') setLeaveConfirm(true);
+    if (currentView === 'create-test' || currentView === 'edit-test') setLeaveConfirm(true);
     else goHome();
   };
 
@@ -110,6 +113,7 @@ export default function App() {
     return (
       <ParticipantRunner
         testId={runnerTestId}
+        preview={runnerPreview}
         overridePrototypeUrl={runnerPrototypeUrl}
         onExit={() => {
           refreshTests();
@@ -166,6 +170,16 @@ export default function App() {
                 <span className="text-slate-900 font-medium">Novo teste</span>
               </>
             )}
+            {currentView === 'edit-test' && (
+              <>
+                <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                <button type="button" onClick={() => setLeaveConfirm(true)} className="hover:text-slate-900 truncate">
+                  {editingTest?.name}
+                </button>
+                <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                <span className="text-slate-900 font-medium">Editar</span>
+              </>
+            )}
             {(currentView === 'test-detail' || currentView === 'participant' || currentView === 'qualitative') && (
               <>
                 <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
@@ -206,7 +220,7 @@ export default function App() {
                 <LayoutList className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Todos os testes</span>
               </button>
             )}
-            {section === 'tests' && currentView !== 'create-test' && currentView !== 'home' && (
+            {section === 'tests' && currentView !== 'create-test' && currentView !== 'edit-test' && currentView !== 'home' && (
               <button
                 type="button"
                 onClick={() => setCurrentView('create-test')}
@@ -251,6 +265,23 @@ export default function App() {
           />
         )}
 
+        {section === 'tests' && currentView === 'edit-test' && editingTest && (
+          <CreateTestWizard
+            key={editingTest.id}
+            editTest={editingTest}
+            onSuccess={async (saved) => {
+              await refreshTests();
+              setEditingTest(null);
+              openTest(saved.id);
+            }}
+            onCancel={() => {
+              setEditingTest(null);
+              openTest(editingTest.id);
+            }}
+            onOpenRunner={() => {}}
+          />
+        )}
+
         {section === 'tests' && currentView === 'test-detail' && selectedTestId && (
           <TestDetailLayout
             testId={selectedTestId}
@@ -266,6 +297,11 @@ export default function App() {
               setCurrentView('runner');
             }}
             onOpenValidationEngine={() => {}}
+            onEdit={(t) => {
+              setEditingTest(t);
+              setCurrentView('edit-test');
+              window.scrollTo({ top: 0 });
+            }}
             onOpenParticipant={openParticipant}
             onOpenQualitative={() => {
               setCurrentView('qualitative');
@@ -298,12 +334,14 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4" onClick={() => (setLeaveConfirm(false), setPendingSection(false))}>
           <div role="dialog" aria-modal="true" className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="space-y-1">
-              <div className="text-base font-semibold text-slate-900">Sair da criação do teste?</div>
-              <p className="text-sm text-slate-500">O teste ainda não foi publicado. O que você preencheu até agora será perdido.</p>
+              <div className="text-base font-semibold text-slate-900">{currentView === 'edit-test' ? 'Sair sem salvar as alterações?' : 'Sair da criação do teste?'}</div>
+              <p className="text-sm text-slate-500">
+                {currentView === 'edit-test' ? 'O teste continua como estava; o que você mudou agora será descartado.' : 'O teste ainda não foi publicado. O que você preencheu até agora será perdido.'}
+              </p>
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" autoFocus onClick={() => setLeaveConfirm(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
-                Continuar criando
+                {currentView === 'edit-test' ? 'Continuar editando' : 'Continuar criando'}
               </button>
               <button type="button" onClick={goHome} className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800">
                 Sair sem salvar

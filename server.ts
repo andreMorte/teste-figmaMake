@@ -541,11 +541,18 @@ app.put('/api/tests/:id', (req, res) => {
     serverTestsStore.unshift(created);
     return res.json(created);
   }
+  if (updates && updates.screenMap) cleanTestPaths(updates);
+  // a edição não mexe nos números do teste (participantes, médias); eles vêm das sessões
+  const { totalParticipants, totalExecutions, averageSusScore, averageSuccessRate, averageDurationSeconds, createdAt, ...editable } = updates || {};
   serverTestsStore[idx] = {
     ...serverTestsStore[idx],
-    ...updates,
+    ...editable,
+    id,
     updatedAt: new Date().toISOString()
   };
+  try {
+    updateTestCounters(id);
+  } catch {}
   return res.json(serverTestsStore[idx]);
 });
 
@@ -2243,7 +2250,8 @@ app.get('/api/prototype-runtime', async (req, res) => {
   const trackingId = esc((req.query.trackingId as string) || '');
   const sessionId = esc((req.query.sessionId as string) || '');
   const participantId = esc((req.query.participantId as string) || '');
-  const mode = (req.query.mode as string) === 'map' ? 'map' : (req.query.mode as string) === 'visual' ? 'visual' : 'run';
+  const qm = req.query.mode as string;
+  const mode = qm === 'map' || qm === 'visual' || qm === 'preview' ? qm : 'run';
 
   try {
     let targetUrl = rawUrl.trim();

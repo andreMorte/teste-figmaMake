@@ -220,15 +220,12 @@ export function registerVisualRoutes(app: Express, { pool, dataDir }: Opts) {
         }
       }
       if (!out) throw lastErr || new Error('IA sem resposta');
-      // segunda opinião: um revisor confere o parecer contra a tela e o repertório e corta o que for genérico
+      // segunda opinião: um revisor dá um veredito para cada apontamento (manter, ajustar ou remover com motivo)
+      // e pode acrescentar o que ficou de fora. O sistema aplica; acertos não se perdem numa reescrita.
       try {
         const rev = await aiVision(buildCriticPrompt(a, screen, idx, out), m[2], m[1]);
-        const checked = groundExpert(rev.json, screen);
-        if (checked.result.resumo && checked.result.problemas.length + checked.result.funciona_bem.length > 0) {
-          out = checked.result;
-          model = rev.model;
-          out.revisado = true;
-        }
+        out = applyReview(out, rev.json, screen);
+        model = `${model} + revisão ${rev.model}`;
       } catch (err: any) {
         console.warn('[Raio-X] revisão do parecer falhou, mantendo a primeira versão:', String(err?.message || err).slice(0, 160));
       }
@@ -328,14 +325,10 @@ Inclua as 10 heurísticas de Nielsen e os 8 critérios ergonômicos.`;
 
 function buildCriticPrompt(a: any, s: any, idx: number, draft: any) {
   const ctx = s.context || {};
+  const probs = (draft.problemas || []).map((p: any, i: number) => `${i}. [${p.severidade}] ${p.titulo} — ${p.descricao} | evidência: ${p.evidencia || '—'} | recomendação: ${p.recomendacao}`).join('\n');
+  const good = (draft.funciona_bem || []).map((t: string, i: number) => `${i}. ${t}`).join('\n');
   return `Você é um(a) Design Lead revisando o parecer de outro designer sobre a tela da imagem (tela ${idx + 1} de ${a.screens.length} do fluxo "${a.name}"${a.goal ? `, objetivo: ${a.goal}` : ''}${a.audience ? `, público: ${a.audience}` : ''}).
-Seu papel é tornar o parecer mais certeiro e real. Faça assim:
-1. Corte o que for genérico (vale para qualquer tela), o que não tiver um elemento visível que o comprove e o que for gosto pessoal sem impacto no uso.
-2. Ajuste a severidade quando estiver exagerada ou subestimada (0 a 4, escala de Nielsen).
-3. Torne as recomendações concretas: qual elemento, o que mudar e, se for texto, a frase sugerida em português do Brasil.
-4. Acrescente um problema só se for importante, visível na imagem e tiver ficado de fora.
-5. Revise as notas das heurísticas e dos critérios para que batam com os problemas apontados. Nota 0 = não avaliável na captura.
-6. Não invente nada que não esteja na tela. Ao citar texto da tela, copie exatamente entre aspas.
+Confira cada apontamento olhando a imagem e o texto real da tela, com base no repertório técnico. Seja justo: o que está correto e comprovado fica.
 
 TEXTO REAL DA TELA
 ${String(ctx.text || '').slice(0, 2500)}
@@ -345,10 +338,64 @@ Campos: ${(ctx.fields || []).map((f: any) => f.label || '(sem rótulo)').join(' 
 REPERTÓRIO TÉCNICO (base para julgar; não o mencione)
 ${knowledgeFor(a, s, idx).text}
 
-PARECER A REVISAR
-${JSON.stringify(draft).slice(0, 12000)}
+PROBLEMAS APONTADOS
+${probs || '(nenhum)'}
 
-Devolva SOMENTE o parecer revisado, no mesmo formato JSON (mesmos campos), completo.`;
+PONTOS POSITIVOS APONTADOS
+${good || '(nenhum)'}
+
+NOTA DADA: ${draft.nota}
+
+Para cada problema, decida:
+- "manter": correto, visível e relevante.
+- "ajustar": correto, mas a gravidade (0 a 4, escala de Nielsen) está errada ou a recomendação é vaga. Traga a nova gravidade e/ou uma recomendação concreta (qual elemento, o que mudar e, se for texto, a frase sugerida).
+- "remover": só com um destes motivos: "generico" (vale para qualquer tela), "sem_evidencia" (não se vê na tela), "gosto" (preferência sem impacto no uso), "dado_ficticio" (critica nomes, números ou registros de exemplo do protótipo, não o design), "duplicado".
+Acrescente em "novos" no máximo 3 problemas importantes, visíveis e que ficaram de fora. Ao citar texto da tela, copie exatamente entre aspas. Não invente nada.
+
+Responda SOMENTE este JSON:
+{"problemas": [{"i": 0, "decisao": "manter|ajustar|remover", "motivo": "...", "severidade": 0-4, "recomendacao": "..."}],
+ "novos": [{"titulo": "...", "descricao": "...", "evidencia": "...", "principios": ["..."], "severidade": 0-4, "recomendacao": "...", "area": ""}],
+ "positivos_remover": [índices de pontos positivos falsos ou genéricos],
+ "nota": 0-100,
+ "resumo": "resumo final em 2 a 3 frases, coerente com os problemas que ficaram"}`;
+}
+
+const REMOVE_REASONS = /generico|genérico|sem_evidencia|sem evid|gosto|dado_ficticio|fict[ií]cio|duplicado/i;
+
+function applyReview(draft: any, review: any, screen: any) {
+  const r = review || {};
+  const verdicts = new Map<number, any>();
+  (Array.isArray(r.problemas) ? r.problemas : []).forEach((v: any) => Number.isInteger(Number(v?.i)) && verdicts.set(Number(v.i), v));
+  const kept = (draft.problemas || [])
+    .map((p: any, i: number) => {
+      const v = verdicts.get(i);
+      if (!v) return p;
+      const d = String(v.decisao || '').toLowerCase();
+      if (d.startsWith('remov') && REMOVE_REASONS.test(String(v.motivo || ''))) return null;
+      if (d.startsWith('ajust')) {
+        const sev = Number(v.severidade);
+        return {
+          ...p,
+          severidade: Number.isFinite(sev) ? Math.max(0, Math.min(4, Math.round(sev))) : p.severidade,
+          recomendacao: typeof v.recomendacao === 'string' && v.recomendacao.trim() ? v.recomendacao.slice(0, 500) : p.recomendacao
+        };
+      }
+      return p;
+    })
+    .filter(Boolean);
+  const novos = groundExpert({ problemas: Array.isArray(r.novos) ? r.novos.slice(0, 3) : [] }, screen).result.problemas.filter(
+    (n: any) => !kept.some((k: any) => norm(k.titulo) === norm(n.titulo))
+  );
+  const dropGood = new Set((Array.isArray(r.positivos_remover) ? r.positivos_remover : []).map(Number));
+  const nota = Number(r.nota);
+  return {
+    ...draft,
+    problemas: [...kept, ...novos].sort((x: any, y: any) => y.severidade - x.severidade).slice(0, 12),
+    funciona_bem: (draft.funciona_bem || []).filter((_: any, i: number) => !dropGood.has(i)),
+    nota: Number.isFinite(nota) ? Math.max(0, Math.min(100, Math.round(nota))) : draft.nota,
+    resumo: typeof r.resumo === 'string' && r.resumo.trim().length > 20 ? r.resumo.slice(0, 700) : draft.resumo,
+    revisado: true
+  };
 }
 
 const norm = (t: string) =>
@@ -397,7 +444,7 @@ function groundExpert(raw: any, screen: any) {
     }))
     .filter((p: any) => {
       if (!p.titulo) return false;
-      if (!quotesOk(`${p.titulo} ${p.descricao} ${p.recomendacao}`)) {
+      if (!quotesOk(`${p.titulo} ${p.descricao}`)) {
         dropped++;
         return false;
       }

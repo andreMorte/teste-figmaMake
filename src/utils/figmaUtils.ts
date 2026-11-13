@@ -89,6 +89,12 @@ export function getShareableTestUrl(testId: string, prototypeUrl?: string): stri
   return base;
 }
 
+/** Link de teste do design: navega pela jornada completa sem registrar nada (sem sessão, cliques, erros ou mapa de calor). */
+export function getDesignPreviewUrl(testId: string): string {
+  const path = `/revisao/${encodeURIComponent(testId)}`;
+  return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
+}
+
 /**
  * Protótipos publicados na web (Figma Make *.figma.site, Vercel, Netlify...) podem ser
  * carregados pelo proxy da mesma origem, que injeta o SDK UXLab. Links figma.com usam o embed oficial.
@@ -102,7 +108,7 @@ export function canInstrumentPrototype(url?: string): boolean {
 
 export function getInstrumentedPrototypeUrl(
   url: string,
-  opts: { testId?: string; trackingId?: string; sessionId?: string; participantId?: string; mode?: 'run' | 'map' | 'visual' } = {}
+  opts: { testId?: string; trackingId?: string; sessionId?: string; participantId?: string; mode?: 'run' | 'map' | 'visual' | 'preview' } = {}
 ): string {
   const params = new URLSearchParams({ url: url.trim() });
   if (opts.testId) params.set('testId', opts.testId);

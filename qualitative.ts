@@ -291,6 +291,16 @@ const logAttempt = (a: { model: string; ms: number; ok: boolean; error?: string 
 // Pergunta ao Google quais modelos esta chave pode usar e ordena os "Flash" do mais novo para o mais antigo.
 let discoveredUntil = 0;
 let lastGoodModel = ''; // o último modelo que respondeu é tentado primeiro na próxima análise
+// Modelos a evitar por um tempo: descontinuados (404) por um dia, sem cota (429) por 10 minutos
+const avoidUntil = new Map<string, number>();
+function markModel(model: string, msg: string) {
+  if (/404|NOT_FOUND|no longer available/i.test(msg)) avoidUntil.set(model, Date.now() + 24 * 3600e3);
+  else if (/429|RESOURCE_EXHAUSTED|quota/i.test(msg)) avoidUntil.set(model, Date.now() + 10 * 60e3);
+}
+function usableModels(list: string[]) {
+  const ok = list.filter((m) => (avoidUntil.get(m) || 0) < Date.now());
+  return ok.length ? ok : list;
+}
 async function discoverModels(): Promise<string[]> {
   if (Date.now() < discoveredUntil) return aiStatus.discovered;
   try {
@@ -324,10 +334,11 @@ async function discoverModels(): Promise<string[]> {
 async function runGemini(prompt: string) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   const discovered = await discoverModels();
-  const models = [...new Set([process.env.GEMINI_MODEL, lastGoodModel, ...discovered.slice(0, 3), 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean) as string[])].slice(0, 5);
+  const models = [...new Set([process.env.GEMINI_MODEL, lastGoodModel, ...discovered.slice(0, 3), 'gemini-flash-latest', 'gemini-flash-lite-latest'].filter(Boolean) as string[])].slice(0, 6);
+  const tryModels = usableModels(models);
   const deadline = Date.now() + 85000;
   let lastErr: any;
-  for (const model of models) {
+  for (const model of tryModels) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const left = deadline - Date.now();
       if (left < 5000) throw lastErr || new Error('IA sem resposta no tempo limite');
@@ -357,6 +368,7 @@ async function runGemini(prompt: string) {
         lastErr = err;
         const msg = String(err?.message || err);
         logAttempt({ model, ms: Date.now() - t0, ok: false, error: msg.slice(0, 220) });
+        markModel(model, msg);
         console.warn(`[IA] ${model} tentativa ${attempt + 1} (${Date.now() - t0}ms): ${msg.slice(0, 160)}`);
         if (/503|UNAVAILABLE|overload|high demand/i.test(msg) && attempt === 0) {
           await sleep(2000);
@@ -568,10 +580,11 @@ export async function aiText(prompt: string, budgetMs = 25000, temperature = 0.4
   const discovered = await discoverModels();
   // modelos "lite" primeiro: respondem mais rápido e uma dica curta não precisa de mais
   const lite = discovered.filter((m) => /lite/.test(m));
-  const models = [...new Set([process.env.GEMINI_MODEL, lastGoodModel, ...lite.slice(0, 2), ...discovered.slice(0, 2), 'gemini-flash-lite-latest', 'gemini-flash-latest'].filter(Boolean) as string[])].slice(0, 4);
+  const models = [...new Set([process.env.GEMINI_MODEL, lastGoodModel, ...lite.slice(0, 2), ...discovered.slice(0, 2), 'gemini-flash-lite-latest', 'gemini-flash-latest'].filter(Boolean) as string[])].slice(0, 5);
+  const tryModels = usableModels(models);
   const deadline = Date.now() + budgetMs;
   let lastErr: any;
-  for (const model of models) {
+  for (const model of tryModels) {
     const left = deadline - Date.now();
     if (left < 3000) break;
     const t0 = Date.now();
@@ -596,6 +609,7 @@ export async function aiText(prompt: string, budgetMs = 25000, temperature = 0.4
     } catch (err: any) {
       lastErr = err;
       logAttempt({ model, ms: Date.now() - t0, ok: false, error: String(err?.message || err).slice(0, 220) });
+      markModel(model, String(err?.message || err));
       if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(String(err?.message || err))) throw err;
     }
   }
@@ -640,12 +654,13 @@ export async function aiVision(prompt: string, imageBase64: string, mimeType = '
   const lite = discovered.filter((m) => /lite/.test(m));
   const models = [
     ...new Set(
-      [process.env.GEMINI_MODEL, ...full.slice(0, 2), 'gemini-flash-latest', 'gemini-2.5-flash', ...lite.slice(0, 1), 'gemini-flash-lite-latest'].filter(Boolean) as string[]
+      [process.env.GEMINI_MODEL, ...full.slice(0, 4), 'gemini-flash-latest', ...lite.slice(0, 1), 'gemini-flash-lite-latest'].filter(Boolean) as string[]
     )
-  ].slice(0, 5);
+  ].slice(0, 7);
+  const tryModels = usableModels(models);
   const deadline = Date.now() + budgetMs;
   let lastErr: any;
-  for (const model of models) {
+  for (const model of tryModels) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const left = deadline - Date.now();
       if (left < 6000) throw lastErr || new Error('IA sem resposta no tempo limite');
@@ -673,6 +688,7 @@ export async function aiVision(prompt: string, imageBase64: string, mimeType = '
         lastErr = err;
         const msg = String(err?.message || err);
         logAttempt({ model, ms: Date.now() - t0, ok: false, error: msg.slice(0, 220) });
+        markModel(model, msg);
         console.warn(`[IA visão] ${model} tentativa ${attempt + 1}: ${msg.slice(0, 160)}`);
         if (/503|UNAVAILABLE|overload|high demand/i.test(msg) && attempt === 0) {
           await sleep(2000);

@@ -7,9 +7,10 @@ import {
   CustomQuestionType
 } from '../../types';
 import {
-  createTest
+  createTest,
+  updateTest
 } from '../../services/dataService';
-import { isFigmaUrl, toFigmaEmbedUrl, getShareableTestUrl } from '../../utils/figmaUtils';
+import { isFigmaUrl, toFigmaEmbedUrl, getShareableTestUrl, getDesignPreviewUrl } from '../../utils/figmaUtils';
 import { ScreenMapper, getTaskSteps, withTaskSteps } from './ScreenMapper';
 import { MetricsStep } from './MetricsStep';
 import { HypothesesEditor } from './HypothesesEditor';
@@ -55,31 +56,37 @@ interface CreateTestWizardProps {
   onSuccess: (createdTest: UsabilityTest) => void;
   onCancel: () => void;
   onOpenRunner: (testId: string, prototypeUrl?: string) => void;
+  /** Teste existente: o assistente abre preenchido e salva as alterações no mesmo teste. */
+  editTest?: UsabilityTest | null;
 }
 
 export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   onSuccess,
   onCancel,
-  onOpenRunner
+  onOpenRunner,
+  editTest
 }) => {
+  const e = editTest || null;
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   // Antes da Etapa 1: o teste é moderado (facilitador acompanha) ou não moderado (ajuda da IA para o participante)?
-  const [moderation, setModeration] = useState<'moderated' | 'unmoderated' | null>(null);
-  const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
+  const [moderation, setModeration] = useState<'moderated' | 'unmoderated' | null>(e ? e.moderation || 'unmoderated' : null);
+  const [hypotheses, setHypotheses] = useState<Hypothesis[]>(e?.hypotheses || []);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
   const [step1Tried, setStep1Tried] = useState(false); // mostra erros só depois de tentar continuar
 
   // STEP 1 STATE: Info (Aberto para QUALQUER teste)
-  const [name, setName] = useState('Novo Teste de Usabilidade de Produto');
-  const [description, setDescription] = useState('Avaliação de usabilidade e compreensão da nova jornada digital.');
-  const [researchGoal, setResearchGoal] = useState('Identificar fricções na navegação, taxa de sucesso nas tarefas e clareza das telas.');
-  const [productName, setProductName] = useState('Plataforma Web / Mobile');
-  const [researcherName, setResearcherName] = useState('Staff UX Researcher');
-  const [participantLimit, setParticipantLimit] = useState<number>(10);
-  const [category, setCategory] = useState<'SaaS / B2B' | 'E-commerce' | 'Mobile App / Fintech' | 'Healthtech' | 'Geral / Customizado'>('Geral / Customizado');
+  const [name, setName] = useState(e ? e.name : 'Novo Teste de Usabilidade de Produto');
+  const [description, setDescription] = useState(e ? e.description || '' : 'Avaliação de usabilidade e compreensão da nova jornada digital.');
+  const [researchGoal, setResearchGoal] = useState(e ? e.researchGoal || '' : 'Identificar fricções na navegação, taxa de sucesso nas tarefas e clareza das telas.');
+  const [productName, setProductName] = useState(e ? e.productName || '' : 'Plataforma Web / Mobile');
+  const [researcherName, setResearcherName] = useState(e ? e.researcherName || '' : 'Staff UX Researcher');
+  const [participantLimit, setParticipantLimit] = useState<number>(e?.participantLimit ?? 10);
+  const [category, setCategory] = useState<'SaaS / B2B' | 'E-commerce' | 'Mobile App / Fintech' | 'Healthtech' | 'Geral / Customizado'>((e?.category as any) || 'Geral / Customizado');
 
   // STEP 2 STATE: Tasks (Genéricas e abertas)
-  const [tasks, setTasks] = useState<TestTask[]>([
+  const [tasks, setTasks] = useState<TestTask[]>(e?.tasks?.length ? e.tasks : [
     {
       id: 'TASK-1',
       order: 1,
@@ -108,7 +115,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   const [newStepName, setNewStepName] = useState('');
 
   // STEP 3 STATE: Custom Questions (Perguntas abertas e livres que o pesquisador define)
-  const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([
+  const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>(e ? e.customQuestions || [] : [
     {
       id: 'CQ-1',
       question: 'Qual foi o momento ou tela em que você encontrou maior facilidade ou dificuldade?',
@@ -124,11 +131,11 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   ]);
 
   // STEP 3 STATE: NPS e SUS editáveis
-  const [npsConfig, setNpsConfig] = useState<NpsConfig>(DEFAULT_NPS);
-  const [susQuestions, setSusQuestions] = useState<string[]>(DEFAULT_SUS_QUESTIONS);
+  const [npsConfig, setNpsConfig] = useState<NpsConfig>(e?.npsConfig || DEFAULT_NPS);
+  const [susQuestions, setSusQuestions] = useState<string[]>(e?.susQuestions || DEFAULT_SUS_QUESTIONS);
 
   // STEP 3 STATE: Metric Config
-  const [metrics, setMetrics] = useState<MetricConfig>({
+  const [metrics, setMetrics] = useState<MetricConfig>(e?.metricConfig || {
     taskSuccessRate: true,
     completionRate: true,
     taskDuration: true,
@@ -148,12 +155,12 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   });
 
   // STEP 4 STATE: Prototype & Publication
-  const [prototypeUrl, setPrototypeUrl] = useState('https://evil-chess-37482794.figma.site');
+  const [prototypeUrl, setPrototypeUrl] = useState(e ? e.prototypeUrl || '' : 'https://evil-chess-37482794.figma.site');
   // Mapeamento de cenários (Etapa 2)
-  const [screenMap, setScreenMap] = useState<MappedScreen[]>([]);
+  const [screenMap, setScreenMap] = useState<MappedScreen[]>(e?.screenMap || []);
   const [isMapperOpen, setIsMapperOpen] = useState(false);
-  const [testId, setTestId] = useState(() => 'TEST-' + Math.random().toString(36).substring(2, 7).toUpperCase());
-  const [trackingId, setTrackingId] = useState('UX-QK8UY');
+  const [testId, setTestId] = useState(() => e?.id || 'TEST-' + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const [trackingId, setTrackingId] = useState(e?.trackingId || 'UX-QK8UY');
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationPassed, setVerificationPassed] = useState<boolean | null>(null);
@@ -161,6 +168,7 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   const [createdTestResult, setCreatedTestResult] = useState<UsabilityTest | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedProtoDirect, setCopiedProtoDirect] = useState(false);
+  const [copiedPreview, setCopiedPreview] = useState(false);
 
   // Preset Template loader
   const applyPresetTemplate = (type: 'saas' | 'ecom' | 'mobile' | 'blank') => {
@@ -423,6 +431,39 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
   // Final Publish Handler
   const handlePublish = async () => {
     if (undetectable.length > 0) return; // sem fim mapeado o participante ficaria preso
+    const config = {
+      name,
+      description,
+      researchGoal,
+      productName,
+      researcherName,
+      participantLimit,
+      moderation: moderation || 'unmoderated',
+      hypotheses: hypotheses.filter((h) => h.statement.trim()),
+      category,
+      prototypeUrl: prototypeUrl.trim(),
+      trackingId: trackingId.trim(),
+      tasks,
+      screenMap,
+      customQuestions: metrics.customQuestions === false ? [] : customQuestions.filter((q) => q.question.trim()),
+      metricConfig: metrics,
+      npsConfig: metrics.nps ? npsConfig : undefined,
+      susQuestions: metrics.sus && susQuestions.some((q, i) => q.trim() !== DEFAULT_SUS_QUESTIONS[i]) ? susQuestions.map((q, i) => q.trim() || DEFAULT_SUS_QUESTIONS[i]) : undefined
+    };
+    if (e) {
+      // Edição: salva no mesmo teste e volta para o painel (link e resultados continuam os mesmos)
+      setSaving(true);
+      setSaveError('');
+      try {
+        const saved = await updateTest(e.id, config as Partial<UsabilityTest>);
+        onSuccess(saved);
+      } catch (err: any) {
+        setSaveError(err?.message || 'Não foi possível salvar as alterações.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const newTest = await createTest({
       id: testId.trim() || undefined,
       name,
@@ -560,6 +601,17 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
       )}
 
       {moderation && (<>
+      {e && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-xs text-blue-900 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="font-semibold">Editando “{e.name}”.</span>
+          <span>O link dos participantes continua o mesmo.</span>
+          {(e.totalParticipants || 0) > 0 && (
+            <span className="text-amber-800">
+              Este teste já tem {e.totalParticipants} {e.totalParticipants === 1 ? 'participante' : 'participantes'}: mudar tarefas ou o caminho esperado muda como os próximos resultados são medidos; o que já foi coletado não é refeito.
+            </span>
+          )}
+        </div>
+      )}
       {/* Step Progress Header */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center justify-between">
@@ -1181,10 +1233,10 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
           <div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-blue-600" />
-              <span>Etapa 5 — Revisar e publicar</span>
+              <span>{e ? 'Etapa 5 — Revisar e salvar' : 'Etapa 5 — Revisar e publicar'}</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-              Confira o resumo do teste e publique para gerar o link dos participantes.
+              {e ? 'Confira o resumo e salve. O link dos participantes e os resultados já coletados continuam os mesmos.' : 'Confira o resumo do teste e publique para gerar o link dos participantes.'}
             </p>
           </div>
 
@@ -1235,30 +1287,46 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                 </div>
               </div>
 
-              {/* Direct Actions: Run Now vs Open Prototype vs Open Test */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
-                {/* 2. Executar o fluxo agora dentro da plataforma */}
-                <button
-                  type="button"
-                  onClick={() => onOpenRunner(createdTestResult.id, createdTestResult.prototypeUrl)}
-                  className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-xs text-center"
-                  title="Executa o teste com o protótipo carregado diretamente no player de avaliação"
-                >
-                  <Play className="w-4 h-4 fill-current shrink-0" />
-                  <span>Fazer Teste no Protótipo</span>
-                </button>
-
-                {/* 3. Abrir o ambiente de teste em nova aba */}
-                <a
-                  href={getShareableTestUrl(createdTestResult.id, createdTestResult.prototypeUrl)}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="py-3 px-4 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold flex items-center justify-center gap-2 transition-colors shadow-xs text-center"
-                  title="Abre a tela de execução do participante em uma nova aba com o protótipo validado"
-                >
-                  <Share2 className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span>Abrir Teste em Nova Aba</span>
-                </a>
+              {/* Link de teste do design: o time confere a jornada sem gerar dados */}
+              <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-3">
+                <div className="space-y-0.5">
+                  <span className="text-amber-800 text-xs font-semibold flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Link de teste do design</span>
+                  </span>
+                  <p className="text-[11px] text-amber-900/80">
+                    Para o time conferir se a jornada abre, se os modais e as descrições das tarefas aparecem e se falta algo. Não registra participante, cliques, erros nem mapa de calor.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={getDesignPreviewUrl(createdTestResult.id)}
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-white border border-amber-200 text-amber-900 text-xs font-mono select-all outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(getDesignPreviewUrl(createdTestResult.id));
+                      setCopiedPreview(true);
+                      setTimeout(() => setCopiedPreview(false), 2000);
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0"
+                  >
+                    {copiedPreview ? <Check className="w-4 h-4 stroke-[2.5]" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedPreview ? 'Copiado!' : 'Copiar'}</span>
+                  </button>
+                  <a
+                    href={getDesignPreviewUrl(createdTestResult.id)}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Testar o design</span>
+                  </a>
+                </div>
               </div>
 
               {/* Forward to Results Dashboard */}
@@ -1409,16 +1477,19 @@ export const CreateTestWizard: React.FC<CreateTestWizardProps> = ({
                   <ChevronLeft className="w-4 h-4" />
                   <span>Voltar</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handlePublish}
-                  disabled={!prototypeUrl.trim() || undetectable.length > 0}
-                  title={undetectable.length > 0 ? 'Mapeie o fim de todas as tarefas para publicar' : undefined}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-xs disabled:opacity-50"
-                >
-                  <Check className="w-4 h-4 stroke-[2.5]" />
-                  <span>Publicar e Gerar Link do Teste</span>
-                </button>
+                <div className="flex flex-col items-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={!prototypeUrl.trim() || undetectable.length > 0 || saving}
+                    title={undetectable.length > 0 ? 'Mapeie o fim de todas as tarefas para publicar' : undefined}
+                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-xs disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4 stroke-[2.5]" />
+                    <span>{e ? (saving ? 'Salvando…' : 'Salvar alterações') : 'Publicar e Gerar Link do Teste'}</span>
+                  </button>
+                  {saveError && <span className="text-[11px] text-rose-600">{saveError}</span>}
+                </div>
               </div>
             </>
           )}

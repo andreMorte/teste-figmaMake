@@ -201,6 +201,22 @@ export async function createTest(testData: Omit<UsabilityTest, 'id' | 'createdAt
   return newTest;
 }
 
+/** Edita um teste já criado (configuração). Os resultados e participantes não são alterados. */
+export async function updateTest(testId: string, data: Partial<UsabilityTest>): Promise<UsabilityTest> {
+  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error(`Não foi possível salvar (erro ${res.status})`);
+  const saved = (await res.json()) as UsabilityTest;
+  const idx = testsCache.findIndex((t) => t.id === testId);
+  if (idx !== -1) testsCache[idx] = saved;
+  else testsCache = [saved, ...testsCache];
+  setStored(STORAGE_KEYS.TESTS, testsCache);
+  return saved;
+}
+
 export async function updateTestStatus(testId: string, status: UsabilityTest['status']): Promise<UsabilityTest | null> {
   const index = testsCache.findIndex((t) => t.id === testId);
   if (index === -1) return null;

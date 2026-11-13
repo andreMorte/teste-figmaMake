@@ -17,7 +17,7 @@ import {
   getSyntheticPersonas,
   runAiAnalysis
 } from '../../services/dataService';
-import { getShareableTestUrl } from '../../utils/figmaUtils';
+import { getShareableTestUrl, getDesignPreviewUrl } from '../../utils/figmaUtils';
 import { JourneyVisualizer } from '../analytics/JourneyVisualizer';
 import { OverviewPanel } from '../analytics/OverviewPanel';
 import { HeatmapExplorer } from '../analytics/HeatmapExplorer';
@@ -52,7 +52,8 @@ import {
   ExternalLink,
   Globe,
   HelpCircle,
-  FolderArchive
+  FolderArchive,
+  Pencil
 } from 'lucide-react';
 import { FigmaMakeExportModal } from '../export/FigmaMakeExportModal';
 
@@ -63,6 +64,7 @@ interface TestDetailLayoutProps {
   onOpenValidationEngine: (prototypeUrl: string, testId: string, trackingId: string) => void;
   onOpenParticipant?: (participantKey: string) => void;
   onOpenQualitative?: () => void;
+  onEdit?: (test: UsabilityTest) => void;
 }
 
 export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
@@ -71,8 +73,10 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
   onOpenRunner,
   onOpenValidationEngine,
   onOpenParticipant,
-  onOpenQualitative
+  onOpenQualitative,
+  onEdit
 }) => {
+  const [copiedPreview, setCopiedPreview] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'journey' | 'heatmaps' | 'sus' | 'participants' | 'insights'>('overview');
   const [loading, setLoading] = useState(true);
   const [test, setTest] = useState<UsabilityTest | null>(null);
@@ -198,9 +202,18 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
               )}
             </div>
 
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              {test.name}
-            </h1>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{test.name}</h1>
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={() => onEdit(test)}
+                  className="shrink-0 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"
+                >
+                  <Pencil className="w-3.5 h-3.5" /> Editar teste
+                </button>
+              )}
+            </div>
             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
               <strong className="text-slate-800 font-semibold">Objetivo de Pesquisa:</strong> {test.researchGoal}
             </p>
@@ -237,6 +250,30 @@ export const TestDetailLayout: React.FC<TestDetailLayoutProps> = ({
                 {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
                 <span>{copiedLink ? 'Copiado!' : 'Copiar'}</span>
               </button>
+            </div>
+
+            {/* Link de teste do design: revisar a jornada sem registrar nada */}
+            <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+              <Eye className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span className="font-semibold text-slate-700">Link de teste do design:</span>
+              <span className="font-mono text-amber-800 truncate max-w-xs sm:max-w-md bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{getDesignPreviewUrl(test.id)}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(getDesignPreviewUrl(test.id));
+                  setCopiedPreview(true);
+                  setTimeout(() => setCopiedPreview(false), 2000);
+                }}
+                className="text-amber-700 hover:text-amber-800 font-semibold flex items-center gap-1 hover:underline"
+              >
+                {copiedPreview ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedPreview ? 'Copiado!' : 'Copiar'}</span>
+              </button>
+              <a href={getDesignPreviewUrl(test.id)} target="_blank" rel="noreferrer noopener" className="text-amber-700 hover:text-amber-800 font-semibold flex items-center gap-1 hover:underline">
+                <span>Abrir</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <span className="text-slate-400">· para conferir a jornada; nada é registrado</span>
             </div>
           </div>
 

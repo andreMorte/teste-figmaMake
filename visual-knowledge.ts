@@ -40,6 +40,7 @@ const BLOCKS: Block[] = [
 - Pondere frequência (todos passam por aqui?), impacto (bloqueia ou só incomoda?) e persistência (o usuário aprende a contornar?).
 - Uma recomendação boa diz exatamente o que mudar: qual elemento, para quê, e, quando for texto, a frase sugerida em português.
 - Não confunda gosto com problema. Estética só é problema quando atrapalha leitura, hierarquia, confiança ou acessibilidade.
+- Protótipos usam dados de exemplo (nomes, valores, registros repetidos). Não critique esses dados; avalie o design: estrutura, hierarquia, textos de interface, componentes e estados.
 - O que depende de interação (feedback após clique, tempo de resposta, validação ao digitar) não é avaliável numa imagem parada: diga isso em vez de supor.`
   },
   {
