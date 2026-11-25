@@ -272,7 +272,8 @@ const CaptureStudio: React.FC<{
       const done: VisualScreen[] = [];
       for (let i = 0; i < shots.length; i++) {
         setProcessing(`Calculando atenção, foco e contraste · tela ${i + 1} de ${shots.length}`);
-        const { sceneKey, ...s } = shots[i];
+        const { sceneKey, ...rest } = shots[i];
+        const s = { ...rest, sceneId: sceneKey }; // guarda o id da cena para casar com os testes
         const field = await computeAttention(s);
         const aois = withShares(field, s, autoAois(s));
         done.push({ ...s, aois, metrics: computeMetrics(field, s) });

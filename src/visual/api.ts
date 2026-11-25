@@ -1,4 +1,4 @@
-import { ChatMsg, ExpertResult, VisualAnalysis, VisualAoi, VisualMeta, VisualMetrics } from './types';
+import { ChatMsg, LinkableTest, ScreenEvidence, ExpertResult, VisualAnalysis, VisualAoi, VisualMeta, VisualMetrics } from './types';
 
 async function json<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -18,7 +18,7 @@ export const visualApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }).then((r) => json<{ ok: boolean }>(r)),
-  chat: (id: string, sid: string, body: { message?: string; focus?: { ref?: string; label?: string } | null }) =>
+  chat: (id: string, sid: string, body: { message?: string; mode?: 'proposta'; focus?: { ref?: string; label?: string } | null }) =>
     fetch(`/api/visual/${encodeURIComponent(id)}/screens/${encodeURIComponent(sid)}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,6 +26,12 @@ export const visualApi = {
     }).then((r) => json<{ chat: ChatMsg[] }>(r)),
   clearChat: (id: string, sid: string) =>
     fetch(`/api/visual/${encodeURIComponent(id)}/screens/${encodeURIComponent(sid)}/chat`, { method: 'DELETE' }).then((r) => json<{ chat: ChatMsg[] }>(r)),
+  linkable: (id: string) => fetch(`/api/visual/${encodeURIComponent(id)}/linkable-tests`).then((r) => json<{ linked: string[]; tests: LinkableTest[] }>(r)),
+  link: (id: string, testIds: string[]) =>
+    fetch(`/api/visual/${encodeURIComponent(id)}/links`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ testIds }) }).then((r) =>
+      json<{ linked: string[] }>(r)
+    ),
+  evidence: (id: string, sid: string) => fetch(`/api/visual/${encodeURIComponent(id)}/screens/${encodeURIComponent(sid)}/evidence`).then((r) => json<ScreenEvidence>(r)),
   expert: (id: string, sid: string) =>
     fetch(`/api/visual/${encodeURIComponent(id)}/screens/${encodeURIComponent(sid)}/expert`, { method: 'POST' }).then((r) => json<ExpertResult>(r))
 };

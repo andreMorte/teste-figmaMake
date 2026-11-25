@@ -24,7 +24,9 @@ export const MapView: React.FC<{
   markerTone?: 'rose' | 'violet';
   /** Clique simples na tela (coordenadas da imagem), usado para perguntar sobre uma parte */
   onPick?: (p: { x: number; y: number }) => void;
-}> = ({ screen, field, mode, aois, showAois, drawing, selected, onSelect, onDrawn, canvasRef, markers, onMarker, markerTone = 'rose', onPick }) => {
+  /** Cliques reais dos participantes (coordenadas da imagem) */
+  dots?: { x: number; y: number; dead: boolean }[];
+}> = ({ screen, field, mode, aois, showAois, drawing, selected, onSelect, onDrawn, canvasRef, markers, onMarker, markerTone = 'rose', onPick, dots }) => {
   const layer = useRef<HTMLCanvasElement | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -111,6 +113,14 @@ export const MapView: React.FC<{
             </span>
           </button>
         ))}
+
+      {(dots || []).map((d, i) => (
+        <span
+          key={`d${i}`}
+          className={`absolute w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-1 ring-white pointer-events-none ${d.dead ? 'bg-rose-500/80' : 'bg-sky-500/70'}`}
+          style={{ left: pct(d.x, W), top: pct(d.y, H) }}
+        />
+      ))}
 
       {(markers || []).map((m) => {
         const v = markerTone === 'violet';

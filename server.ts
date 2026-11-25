@@ -2186,50 +2186,142 @@ function snapshotMeta(snap: any) {
 
 // Serve UXLab SDK files directly
 app.use('/sdk', express.static(path.join(process.cwd(), 'public/sdk')));
-// Evidência real para o agente do Raio-X: o que os participantes viveram em testes com o mesmo protótipo
-function testEvidenceFor(prototypeUrl: string) {
-  const host = (u: string) => {
-    try {
-      return new URL(/^https?:/i.test(u) ? u : `https://${u}`).host.toLowerCase();
-    } catch {
-      return '';
-    }
-  };
-  const h = host(prototypeUrl || '');
-  if (!h) return null;
-  const tests = serverTestsStore.filter((t) => host(t.prototypeUrl || '') === h);
+// ---------------------------------------------------------------------------
+// Raio-X × testes de usabilidade: vínculo e evidência real por tela
+// ---------------------------------------------------------------------------
+const hostOf = (u: string) => {
+  try {
+    return new URL(/^https?:/i.test(u) ? u : `https://${u}`).host.toLowerCase();
+  } catch {
+    return '';
+  }
+};
+const normTxt = (t: string) =>
+  String(t || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+function linkableTests(prototypeUrl: string) {
+  const h = hostOf(prototypeUrl || '');
+  return serverTestsStore
+    .map((t) => {
+      const sessions = serverSessionsStore.filter((x) => x.testId === t.id);
+      const people = new Set(sessions.map((x) => x.participantId || x.sessionId)).size;
+      return {
+        id: t.id,
+        name: t.name,
+        createdAt: t.createdAt,
+        status: t.status,
+        participants: people,
+        tasks: (t.tasks || []).length,
+        prototypeUrl: t.prototypeUrl,
+        sameProto: !!h && hostOf(t.prototypeUrl || '') === h
+      };
+    })
+    .sort((a, b) => Number(b.sameProto) - Number(a.sameProto) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+/** A tela do teste que corresponde à tela do Raio-X (pelo id da cena, pelo nome ou pelo título). */
+function matchTestScreen(test: any, screen: any): string | null {
+  const map: any[] = test.screenMap || [];
+  if (screen.sceneId && map.some((m) => m.screenId === screen.sceneId)) return screen.sceneId;
+  const names = [screen.name, screen.context?.title, screen.context?.screenName].map(normTxt).filter(Boolean);
+  const hit =
+    map.find((m) => names.includes(normTxt(m.screenName)) || names.includes(normTxt(m.title))) ||
+    map.find((m) => m.title && names.some((n) => n.includes(normTxt(m.title)) || normTxt(m.title).includes(n)));
+  if (hit) return hit.screenId;
+  // sem mapeamento: procura nos eventos pelo nome da tela registrado no clique
+  const ev = serverEventsStore.find((e) => e.testId === test.id && names.includes(normTxt((e.metadata as any)?.screenName)));
+  return ev ? ev.currentScreen : null;
+}
+
+function screenEvidence(analysis: any, screen: any) {
+  const linked: string[] = Array.isArray(analysis.linkedTests) ? analysis.linkedTests : [];
+  const h = hostOf(analysis.prototypeUrl || '');
+  const tests = linked.length
+    ? serverTestsStore.filter((t) => linked.includes(t.id))
+    : serverTestsStore.filter((t) => h && hostOf(t.prototypeUrl || '') === h).slice(0, 2);
   if (!tests.length) return null;
   const ids = new Set<string>();
   const lines: string[] = [];
+  const clicks: { x: number; y: number; dead: boolean }[] = [];
+  const summary: any[] = [];
+  const k = (screen.imageWidth || 1) / (screen.docWidth || screen.imageWidth || 1);
   let n = 0;
-  for (const t of tests.slice(0, 3)) {
+  const add = (text: string) => {
+    const id = `T${++n}`;
+    ids.add(id);
+    lines.push(`[${id}] ${text}`);
+  };
+  for (const t of tests) {
     const sessions = serverSessionsStore.filter((x) => x.testId === t.id);
-    if (!sessions.length) continue;
     const sids = new Set(sessions.map((x) => x.sessionId));
     const events = serverEventsStore.filter((e) => sids.has(e.sessionId));
     const sus = serverSusResponsesStore.filter((r) => sids.has(r.sessionId));
     const { items, participants } = collectQualitative(t, sessions, events, sus);
+    const sid = matchTestScreen(t, screen);
     const done = participants.filter((p) => p.status === 'Concluiu').length;
-    lines.push(`Teste "${t.name}": ${participants.length} participante(s), ${done} concluíram a jornada.`);
-    (t.tasks || []).forEach((task: any) => {
+    lines.push(`Teste "${t.name}"${linked.length ? ' (vinculado pelo designer)' : ' (mesmo protótipo)'}: ${participants.length} participante(s), ${done} concluíram a jornada. ${sid ? 'Esta tela foi encontrada no teste.' : 'Esta tela NÃO foi encontrada no teste: use só a evidência geral.'}`);
+    const sum: any = { testId: t.id, name: t.name, participants: participants.length, matched: !!sid, clicks: 0, dead: 0, visitors: 0, tasks: [] as any[] };
+    // tarefas que passam por esta tela (ou todas, se a tela não foi encontrada)
+    const tasks = (t.tasks || []).filter((task: any) => !sid || (task.expectedPath || []).includes(sid));
+    for (const task of tasks) {
       const ok = new Set(events.filter((e) => e.eventType === 'TASK_SUCCESS' && e.taskId === task.id).map((e) => e.sessionId)).size;
-      const id = `T${++n}`;
-      ids.add(id);
-      lines.push(`[${id}] Tarefa "${task.title}": ${ok} de ${participants.length} concluíram.`);
-    });
+      const ab = new Set(events.filter((e) => e.eventType === 'TASK_ABANDON' && e.taskId === task.id).map((e) => e.sessionId)).size;
+      sum.tasks.push({ title: task.title, ok, abandoned: ab, total: participants.length });
+      add(`Tarefa "${task.title}"${sid ? ' (passa por esta tela)' : ''}: ${ok} de ${participants.length} concluíram${ab ? `, ${ab} desistiram` : ''}.`);
+    }
+    if (sid) {
+      const here = events.filter((e) => e.currentScreen === sid);
+      const visitors = new Set(here.map((e) => e.sessionId)).size;
+      const cl = here.filter((e) => e.eventType === 'CLICK');
+      const dead = cl.filter((e) => (e.metadata as any)?.interactive === false);
+      sum.visitors = visitors;
+      sum.clicks = cl.length;
+      sum.dead = dead.length;
+      if (visitors) add(`${visitors} participante(s) passaram por esta tela; ${cl.length} cliques, ${dead.length} em lugares que não fazem nada.`);
+      const count = (arr: any[]) => {
+        const m = new Map<string, number>();
+        arr.forEach((e) => {
+          const l = String(e.element || '').slice(0, 50);
+          if (l) m.set(l, (m.get(l) || 0) + 1);
+        });
+        return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+      };
+      const top = count(cl.filter((e) => (e.metadata as any)?.interactive !== false));
+      if (top.length) add(`Mais clicados nesta tela: ${top.map(([l, c]) => `"${l}" (${c})`).join(', ')}.`);
+      const deadTop = count(dead);
+      if (deadTop.length) add(`Cliques sem efeito nesta tela: ${deadTop.map(([l, c]) => `"${l}" (${c})`).join(', ')}.`);
+      // pontos de clique sobre a imagem do Raio-X (só de quem viu a tela numa largura parecida)
+      cl.forEach((e) => {
+        const md: any = e.metadata || {};
+        if (typeof md.pageNX !== 'number' || typeof md.pageNY !== 'number') return;
+        const dw = md.docWidth || 0;
+        if (dw && screen.docWidth && Math.abs(dw - screen.docWidth) / screen.docWidth > 0.2) return;
+        const dh = md.docHeight || screen.docHeight;
+        const x = md.pageNX * (screen.docWidth || dw) * k;
+        const y = md.pageNY * dh * k;
+        if (y <= (screen.imageHeight || 1e9)) clicks.push({ x: Math.round(x), y: Math.round(y), dead: md.interactive === false });
+      });
+    }
+    const taskTitles = new Set(tasks.map((x: any) => x.title));
     const label: Record<string, string> = { dificuldade: 'relatou dificuldade', desistencia: 'desistiu', ajuda_ia: 'pediu ajuda à IA', comentario_sus: 'comentou', pergunta: 'respondeu' };
     items
-      .filter((it) => it.source !== 'pergunta' || String(it.text).length > 12)
-      .slice(-25)
-      .forEach((it) => {
-        const id = `T${++n}`;
-        ids.add(id);
-        lines.push(`[${id}] Participante #${String(it.participantNumber || '?').padStart(2, '0')}${it.taskTitle ? ` · tarefa "${it.taskTitle}"` : ''} ${label[it.source] || it.source}${it.question ? ` (pergunta: ${it.question})` : ''}: "${String(it.text).slice(0, 220)}"`);
-      });
+      .filter((it) => (!it.taskTitle || !sid || taskTitles.has(it.taskTitle)) && (it.source !== 'pergunta' || String(it.text).length > 12))
+      .slice(-20)
+      .forEach((it) =>
+        add(
+          `Participante #${String(it.participantNumber || '?').padStart(2, '0')}${it.taskTitle ? ` · tarefa "${it.taskTitle}"` : ''} ${label[it.source] || it.source}${it.question ? ` (pergunta: ${it.question})` : ''}: "${String(it.text).slice(0, 220)}"`
+        )
+      );
+    summary.push(sum);
   }
-  return lines.length ? { text: lines.join('\n'), ids } : null;
+  return { text: lines.join('\n'), ids, clicks: clicks.slice(0, 800), summary, linked: linked.length > 0 };
 }
-registerVisualRoutes(app, { pool, dataDir: DATA_DIR, evidence: testEvidenceFor });
+registerVisualRoutes(app, { pool, dataDir: DATA_DIR, evidence: screenEvidence, linkable: linkableTests, testExists: (id: string) => serverTestsStore.some((t) => t.id === id) });
 
 // =========================================================================
 // PROXY DO PROTÓTIPO (mesma origem) — permite injetar o SDK UXLab

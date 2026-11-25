@@ -100,13 +100,15 @@ export interface VisualScreen {
   metrics?: VisualMetrics;
   expert?: ExpertResult;
   chat?: ChatMsg[];
+  sceneId?: string; // id da cena no protótipo (casa com os testes de usabilidade)
   capturedAt: string;
 }
 
 export type ChatBlock =
   | { tipo: 'texto'; texto: string; base: string[] }
   | { tipo: 'alternativa'; titulo: string; texto: string; base: string[] }
-  | { tipo: 'texto_sugerido'; de: string; para: string; motivo?: string; base: string[] };
+  | { tipo: 'texto_sugerido'; de: string; para: string; motivo?: string; base: string[] }
+  | { tipo: 'melhoria'; prioridade: number; titulo: string; texto: string; evidencia: 'raiox' | 'teste' | 'ambos'; base: string[] };
 
 export interface ChatMsg {
   role: 'user' | 'agent';
@@ -116,7 +118,26 @@ export interface ChatMsg {
   refs?: { id: string; label: string; kind: string; box: { x: number; y: number; w: number; h: number } }[];
   proximas?: string[];
   opening?: boolean;
+  proposal?: boolean;
+  linked?: boolean;
   at: string;
+}
+
+export interface LinkableTest {
+  id: string;
+  name: string;
+  createdAt?: string;
+  status?: string;
+  participants: number;
+  tasks: number;
+  prototypeUrl?: string;
+  sameProto: boolean;
+}
+
+export interface ScreenEvidence {
+  linked: boolean;
+  summary: { testId: string; name: string; participants: number; matched: boolean; clicks: number; dead: number; visitors: number; tasks: { title: string; ok: number; abandoned: number; total: number }[] }[];
+  clicks: { x: number; y: number; dead: boolean }[];
 }
 
 export interface VisualAnalysis {
@@ -126,6 +147,7 @@ export interface VisualAnalysis {
   device: VisualDevice;
   goal?: string;
   audience?: string;
+  linkedTests?: string[];
   createdAt?: string;
   updatedAt?: string;
   screens: VisualScreen[];

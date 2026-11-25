@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, Send, MessageSquareText, X, Copy, Check, Download, Eye, Focus, Contrast, Image as ImageIcon, SquareDashed, Plus, Loader2, Sparkles, RefreshCw, Trash2, AlertTriangle, CheckCircle2,
+  ArrowLeft, Send, MessageSquareText, X, Copy, Check, Link2, Wand2, MousePointerClick, Search, Download, Eye, Focus, Contrast, Image as ImageIcon, SquareDashed, Plus, Loader2, Sparkles, RefreshCw, Trash2, AlertTriangle, CheckCircle2,
   Layers, FileText, FileSpreadsheet, ImageDown, ChevronDown, Brain, Heart, ListOrdered, Monitor, Smartphone, Info
 } from 'lucide-react';
 import { visualApi } from './api';
@@ -8,7 +8,7 @@ import { ExpertResult, VisualAnalysis, VisualAoi, VisualScreen } from './types';
 import { AttentionField, ENGINE_VERSION, clarityLabel, computeAttention, computeMetrics, contrastFailures, focusLabel, paintLayer, withShares, autoAois, loadImage, aoiTone } from './engine';
 import { MapLegend, MapMode, MapView } from './MapView';
 import { elementList } from './elements';
-import { ChatMsg, ChatBlock } from './types';
+import { ChatMsg, ChatBlock, LinkableTest, ScreenEvidence } from './types';
 import { A11yIssue, Consistency, ConsistencyCard, SEV_LABEL, SEV_TONE as QSEV_TONE, flowConsistency, screenA11y } from './quality';
 
 const tone = (v: number | null | undefined, good = 70, mid = 45) => (v === null || v === undefined ? 'text-slate-400' : v >= good ? 'text-emerald-600' : v >= mid ? 'text-amber-600' : 'text-rose-600');
@@ -86,6 +86,10 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
   const [chatErr, setChatErr] = useState('');
   const [chatFocus, setChatFocus] = useState<{ ref?: string; label?: string } | null>(null);
   const [pin, setPin] = useState<{ msg: number | null; ref: string | null }>({ msg: null, ref: null });
+  // vínculo com testes de usabilidade
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [evidence, setEvidence] = useState<Record<string, ScreenEvidence>>({});
+  const [showClicks, setShowClicks] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
   const [expertErr, setExpertErr] = useState<Record<string, string>>({});
   const [stopQueue, setStopQueue] = useState('');
@@ -160,7 +164,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
     [id]
   );
   const sendChat = useCallback(
-    async (sid: string, message?: string, focus?: { ref?: string; label?: string } | null) => {
+    async (sid: string, message?: string, focus?: { ref?: string; label?: string } | null, mode?: 'proposta') => {
       setChatBusy(true);
       setChatErr('');
       if (message) {
@@ -172,7 +176,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
         );
       }
       try {
-        const r = await visualApi.chat(id, sid, { message, focus });
+        const r = await visualApi.chat(id, sid, mode ? { mode } : { message, focus });
         setA((cur) => (cur ? { ...cur, screens: cur.screens.map((x) => (x.id === sid ? { ...x, chat: r.chat } : x)) } : cur));
         setPin({ msg: null, ref: null });
         setChatFocus(null);
@@ -191,6 +195,19 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
     if (screen && !(screen.chat || []).length && !chatBusy) sendChat(screen.id); // abertura proativa
   };
   const elementsForChat = useMemo(() => (screen ? elementList(screen) : []), [screen]);
+  const linkedCount = a?.linkedTests?.length || 0;
+  useEffect(() => {
+    if (!chatOpen || !screen) return;
+    let off = false;
+    visualApi
+      .evidence(id, screen.id)
+      .then((ev) => !off && setEvidence((m) => ({ ...m, [screen.id]: ev })))
+      .catch(() => {});
+    return () => {
+      off = true;
+    };
+  }, [chatOpen, screen?.id, linkedCount, id]); // eslint-disable-line
+  const ev = screen ? evidence[screen.id] : undefined;
   const chatMsgs = screen?.chat || [];
   const pinnedIdx = pin.msg ?? (() => {
     for (let i = chatMsgs.length - 1; i >= 0; i--) if (chatMsgs[i].role === 'agent' && (chatMsgs[i].refs || []).length) return i;
@@ -324,6 +341,15 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Especialista analisando · faltam {pendingExperts}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setLinkOpen(true)}
+            className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 ${
+              linkedCount ? 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5" /> {linkedCount ? `${linkedCount} ${linkedCount === 1 ? 'teste vinculado' : 'testes vinculados'}` : 'Vincular teste de usabilidade'}
+          </button>
           <button type="button" onClick={() => onAddScreens(a)} className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> Adicionar telas
           </button>
@@ -474,6 +500,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                           : undefined
                       }
                       markerTone={chatOpen ? 'violet' : 'rose'}
+                      dots={chatOpen && showClicks && ev ? ev.clicks : undefined}
                       onMarker={(n) => (chatOpen ? setPin((p) => ({ ...p, ref: `E${n}` })) : setActiveIssue(n))}
                       onPick={
                         chatOpen
@@ -522,6 +549,12 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                     onClearFocus={() => setChatFocus(null)}
                     onRef={(msg, ref) => setPin({ msg, ref })}
                     onSend={(text) => sendChat(screen.id, text, chatFocus)}
+                    onPropose={() => sendChat(screen.id, undefined, null, 'proposta')}
+                    linkedCount={linkedCount}
+                    onLink={() => setLinkOpen(true)}
+                    evidence={ev}
+                    showClicks={showClicks}
+                    onToggleClicks={() => setShowClicks((v) => !v)}
                     onRestart={async () => {
                       await visualApi.clearChat(id, screen.id).catch(() => {});
                       updateScreen(screen.id, { chat: [] }, false);
@@ -591,6 +624,17 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
       </div>
 
       {printImgs && <PrintReport a={a} imgs={printImgs} />}
+      {linkOpen && (
+        <LinkModal
+          analysisId={a.id}
+          onClose={() => setLinkOpen(false)}
+          onSaved={(linked) => {
+            setA((cur) => (cur ? { ...cur, linkedTests: linked } : cur));
+            setEvidence({});
+            setLinkOpen(false);
+          }}
+        />
+      )}
     </>
   );
 };
@@ -1123,7 +1167,13 @@ const ChatPanel: React.FC<{
   onRef: (msg: number, ref: string) => void;
   onSend: (text: string) => void;
   onRestart: () => void;
-}> = ({ msgs, busy, error, focus, pinnedIdx, activeRef, onClose, onClearFocus, onRef, onSend, onRestart }) => {
+  onPropose: () => void;
+  linkedCount: number;
+  onLink: () => void;
+  evidence?: ScreenEvidence;
+  showClicks: boolean;
+  onToggleClicks: () => void;
+}> = ({ msgs, busy, error, focus, pinnedIdx, activeRef, onClose, onClearFocus, onRef, onSend, onRestart, onPropose, linkedCount, onLink, evidence, showClicks, onToggleClicks }) => {
   const [text, setText] = useState('');
   const [copied, setCopied] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
@@ -1156,6 +1206,51 @@ const ChatPanel: React.FC<{
         </button>
       </div>
 
+      {/* insumo real: testes de usabilidade vinculados */}
+      <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/60 space-y-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={onLink}
+            className={`text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 border ${
+              linkedCount ? 'border-sky-200 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5" /> {linkedCount ? `Testes vinculados (${linkedCount})` : 'Vincular teste'}
+          </button>
+          {evidence && evidence.clicks.length > 0 && (
+            <button type="button" onClick={onToggleClicks} aria-pressed={showClicks} className={`whitespace-nowrap text-[11px] font-semibold inline-flex items-center gap-1 rounded-lg px-2 py-1 border ${showClicks ? 'border-slate-300 bg-white text-slate-800' : 'border-slate-200 text-slate-500'}`}>
+              <MousePointerClick className="w-3.5 h-3.5" /> Cliques ({evidence.clicks.length})
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onPropose}
+            disabled={busy}
+            className="ml-auto whitespace-nowrap text-[11px] font-semibold inline-flex items-center gap-1 rounded-lg px-2.5 py-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white"
+          >
+            <Wand2 className="w-3.5 h-3.5" /> Propor melhorias
+          </button>
+        </div>
+        {evidence && evidence.summary.length > 0 && (
+          <div className="text-[10.5px] text-slate-500 leading-snug">
+            {evidence.summary.map((t) => (
+              <div key={t.testId}>
+                <b className="text-slate-700">{t.name}</b>: {t.participants} participante(s)
+                {t.matched ? ` · ${t.visitors} passaram nesta tela · ${t.clicks} cliques (${t.dead} sem efeito)` : ' · esta tela não foi encontrada no teste'}
+                {t.tasks.length > 0 && ` · ${t.tasks.map((k) => `"${k.title}" ${k.ok}/${k.total}`).join(', ')}`}
+              </div>
+            ))}
+            {evidence.clicks.length > 0 && showClicks && (
+              <div className="flex items-center gap-3 pt-0.5">
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-500" /> clique com efeito</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500" /> clique sem efeito</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {msgs.map((m, i) =>
           m.role === 'user' ? (
@@ -1165,9 +1260,43 @@ const ChatPanel: React.FC<{
             </div>
           ) : (
             <div key={i} className={`space-y-2 text-xs leading-relaxed text-slate-700 rounded-xl p-2 -m-2 ${pinnedIdx === i ? 'bg-violet-50/40' : ''}`}>
-              {m.opening && <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-600">O que merece atenção nesta tela</div>}
+              {m.opening && !m.proposal && <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-600">O que merece atenção nesta tela</div>}
+              {m.proposal && (
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-600">
+                  Melhorias propostas{m.linked ? ' · cruzando Raio-X e teste de usabilidade' : ' · com base no Raio-X'}
+                </div>
+              )}
               {(m.blocks || []).map((b: ChatBlock, k) =>
-                b.tipo === 'texto_sugerido' ? (
+                b.tipo === 'melhoria' ? (
+                  <div key={k} className="rounded-lg border border-slate-200 bg-white p-2.5 space-y-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
+                          b.prioridade === 1 ? 'bg-orange-100 text-orange-800' : b.prioridade === 2 ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {b.prioridade === 1 ? 'Alta' : b.prioridade === 2 ? 'Média' : 'Baixa'}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold rounded px-1.5 py-0.5 border ${
+                          b.evidencia === 'ambos'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : b.evidencia === 'teste'
+                            ? 'bg-sky-50 text-sky-800 border-sky-200'
+                            : 'bg-violet-50 text-violet-700 border-violet-200'
+                        }`}
+                      >
+                        {b.evidencia === 'ambos' ? 'Previsto e confirmado no teste' : b.evidencia === 'teste' ? 'Visto no teste' : 'Previsto pelo Raio-X'}
+                      </span>
+                    </div>
+                    <div className="text-xs font-semibold text-slate-900">
+                      <RefText text={b.titulo} msg={i} activeRef={activeRef} pinned={pinnedIdx === i} refs={m.refs} onRef={onRef} />
+                    </div>
+                    <div className="text-[11.5px] text-slate-600">
+                      <RefText text={b.texto} msg={i} activeRef={activeRef} pinned={pinnedIdx === i} refs={m.refs} onRef={onRef} />
+                    </div>
+                  </div>
+                ) : b.tipo === 'texto_sugerido' ? (
                   <div key={k} className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-2.5 space-y-1">
                     <div className="text-[10px] font-semibold text-emerald-800 uppercase tracking-wider">Texto sugerido</div>
                     <div className="text-[11px] text-slate-500 line-through">{b.de}</div>
@@ -1251,6 +1380,105 @@ const ChatPanel: React.FC<{
             <Send className="w-4 h-4" />
           </button>
         </form>
+      </div>
+    </div>
+  );
+};
+
+
+const LinkModal: React.FC<{ analysisId: string; onClose: () => void; onSaved: (linked: string[]) => void }> = ({ analysisId, onClose, onSaved }) => {
+  const [tests, setTests] = useState<LinkableTest[] | null>(null);
+  const [sel, setSel] = useState<string[]>([]);
+  const [q, setQ] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    visualApi
+      .linkable(analysisId)
+      .then((r) => {
+        setTests(r.tests);
+        setSel(r.linked);
+      })
+      .catch((e) => setErr(e.message));
+  }, [analysisId]);
+  const list = (tests || []).filter((t) => !q.trim() || `${t.name} ${t.id}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const toggle = (id: string) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : s.length >= 3 ? s : [...s, id]));
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="link-title" className="bg-white rounded-2xl max-w-lg w-full shadow-2xl flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="p-5 pb-3 space-y-1">
+          <div id="link-title" className="text-base font-semibold text-slate-900">Vincular teste de usabilidade</div>
+          <p className="text-xs text-slate-500">
+            O especialista passa a usar o que os participantes viveram: onde clicaram, onde travaram, o que pediram e comentaram. Escolha até 3 testes desta jornada.
+          </p>
+        </div>
+        <div className="px-5 pb-3">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+            <Search className="w-4 h-4 text-slate-400" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome ou código" className="flex-1 bg-transparent text-sm outline-none" autoFocus />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 space-y-1.5">
+          {!tests && !err && (
+            <div className="py-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Carregando testes…
+            </div>
+          )}
+          {tests && list.length === 0 && <div className="py-8 text-center text-xs text-slate-400">Nenhum teste encontrado.</div>}
+          {list.map((t) => {
+            const on = sel.includes(t.id);
+            const full = !on && sel.length >= 3;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                disabled={full}
+                onClick={() => toggle(t.id)}
+                className={`w-full text-left rounded-xl border p-3 flex items-start gap-3 ${on ? 'border-sky-300 bg-sky-50/60' : 'border-slate-200 hover:bg-slate-50'} disabled:opacity-40`}
+              >
+                <span className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${on ? 'bg-sky-600 border-sky-600 text-white' : 'border-slate-300'}`}>
+                  {on && <Check className="w-3 h-3" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-slate-900">{t.name}</span>
+                    {t.sameProto && <span className="text-[10px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5">mesmo protótipo</span>}
+                  </span>
+                  <span className="block text-[11px] text-slate-500 mt-0.5">
+                    {t.id} · {t.participants} {t.participants === 1 ? 'participante' : 'participantes'} · {t.tasks} {t.tasks === 1 ? 'tarefa' : 'tarefas'}
+                    {t.createdAt ? ` · ${new Date(t.createdAt).toLocaleDateString('pt-BR')}` : ''}
+                  </span>
+                  {t.participants === 0 && <span className="block text-[11px] text-amber-700 mt-0.5">Ainda sem participantes: não traz insumo por enquanto.</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {err && <div className="px-5 pt-2 text-xs text-rose-600">{err}</div>}
+        <div className="p-5 pt-4 flex items-center gap-2 border-t border-slate-100 mt-3">
+          <span className="text-[11px] text-slate-400">{sel.length} de 3 selecionados</span>
+          <button type="button" onClick={onClose} className="ml-auto px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={saving || !tests}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                const r = await visualApi.link(analysisId, sel);
+                onSaved(r.linked);
+              } catch (e: any) {
+                setErr(e.message);
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-40"
+          >
+            {saving ? 'Salvando…' : 'Vincular'}
+          </button>
+        </div>
       </div>
     </div>
   );

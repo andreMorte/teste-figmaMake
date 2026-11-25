@@ -7,7 +7,13 @@ import { aiVision, aiEngine } from './qualitative';
 import { knowledgeFor } from './visual-knowledge';
 import { registerAgentRoutes, Evidence } from './visual-agent';
 
-type Opts = { pool: Pool | null; dataDir: string; evidence?: (prototypeUrl: string) => Evidence };
+type Opts = {
+  pool: Pool | null;
+  dataDir: string;
+  evidence?: (analysis: any, screen: any) => Evidence;
+  linkable?: (prototypeUrl: string) => any[];
+  testExists?: (id: string) => boolean;
+};
 
 const NIELSEN = [
   'Visibilidade do status do sistema',
@@ -57,7 +63,7 @@ function metaOf(a: any) {
   };
 }
 
-export function registerVisualRoutes(app: Express, { pool, dataDir, evidence }: Opts) {
+export function registerVisualRoutes(app: Express, { pool, dataDir, evidence, linkable, testExists }: Opts) {
   const dir = path.join(dataDir, 'visual');
   let ready: Promise<void> | null = null;
   const ensure = () => {
@@ -142,6 +148,7 @@ export function registerVisualRoutes(app: Express, { pool, dataDir, evidence }: 
       const prev = await load(id);
       const a = {
         ...body,
+        linkedTests: body.linkedTests || prev?.linkedTests,
         id,
         createdAt: prev?.createdAt || body.createdAt || new Date().toISOString(),
         screens: (Array.isArray(body.screens) ? body.screens : []).slice(0, 40).map((s: any) => {
@@ -185,6 +192,41 @@ export function registerVisualRoutes(app: Express, { pool, dataDir, evidence }: 
       if (b.metrics && typeof b.metrics === 'object') s.metrics = b.metrics;
       await save(a);
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Vínculo com testes de usabilidade (mais insumo real para o especialista)
+  app.get('/api/visual/:id/linkable-tests', async (req, res) => {
+    try {
+      const a = await load(safeId(req.params.id));
+      if (!a) return res.status(404).json({ error: 'Análise não encontrada' });
+      res.json({ linked: a.linkedTests || [], tests: linkable ? linkable(a.prototypeUrl) : [] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app.post('/api/visual/:id/links', async (req, res) => {
+    try {
+      const a = await load(safeId(req.params.id));
+      if (!a) return res.status(404).json({ error: 'Análise não encontrada' });
+      const ids = (Array.isArray(req.body?.testIds) ? req.body.testIds : []).map((x: any) => String(x).slice(0, 40)).filter((x: string) => !testExists || testExists(x));
+      a.linkedTests = [...new Set(ids)].slice(0, 3);
+      await save(a);
+      res.json({ linked: a.linkedTests });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app.get('/api/visual/:id/screens/:sid/evidence', async (req, res) => {
+    try {
+      const a = await load(safeId(req.params.id));
+      if (!a) return res.status(404).json({ error: 'Análise não encontrada' });
+      const s = (a.screens || []).find((x: any) => x.id === req.params.sid);
+      if (!s) return res.status(404).json({ error: 'Tela não encontrada' });
+      const ev: any = evidence ? evidence(a, s) : null;
+      res.json(ev ? { linked: ev.linked, summary: ev.summary, clicks: ev.clicks } : { linked: false, summary: [], clicks: [] });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

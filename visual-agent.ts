@@ -8,12 +8,12 @@ import { libraryFor } from './visual-knowledge';
 import { screenA11y, flowConsistency } from './src/visual/quality';
 import { elementList } from './src/visual/elements';
 
-export type Evidence = { text: string; ids: Set<string> } | null;
+export type Evidence = { text: string; ids: Set<string>; [k: string]: any } | null;
 
 type Deps = {
   load: (id: string) => Promise<any | null>;
   save: (a: any) => Promise<void>;
-  evidence: (prototypeUrl: string) => Evidence;
+  evidence: (analysis: any, screen: any) => Evidence;
   safeId: (v: string) => string;
 };
 
@@ -26,7 +26,7 @@ const norm = (t: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-function buildPrompt(a: any, s: any, idx: number, chat: any[], message: string | null, focus: any, lib: { text: string }, ev: Evidence, list: any[]) {
+function buildPrompt(a: any, s: any, idx: number, chat: any[], message: string | null, focus: any, lib: { text: string }, ev: Evidence, list: any[], mode: 'conversa' | 'proposta' = 'conversa') {
   const ctx = s.context || {};
   const acc = screenA11y(s);
   const cons = flowConsistency(a.screens || []);
@@ -39,7 +39,9 @@ function buildPrompt(a: any, s: any, idx: number, chat: any[], message: string |
     .slice(-8)
     .map((m: any) => (m.role === 'user' ? `DESIGNER: ${m.text}${m.focus?.label ? ` (sobre: ${m.focus.label})` : ''}` : `VOCÊ: ${(m.blocks || []).map((b: any) => b.texto || (b.de ? `trocar "${b.de}" por "${b.para}"` : '')).join(' ')}`))
     .join('\n');
-  const task = message
+  const task = mode === 'proposta'
+    ? `PROPOSTA DE MELHORIAS: o designer pediu as melhorias desta tela. Cruze o que o Raio-X mediu com o que os participantes viveram nos testes (quando houver). Liste de 3 a 6 melhorias em blocos do tipo "melhoria", da mais importante para a menos importante. Cada uma: o elemento [E#], o problema, a evidência e a mudança concreta. Use "evidencia": "teste" quando só o teste mostrou, "ambos" quando o Raio-X previu e o teste confirmou, "raiox" quando só o Raio-X mediu. Para "teste" e "ambos", inclua o código T# na base. Quando a mudança for de texto, acrescente um bloco "texto_sugerido".`
+    : message
     ? `PERGUNTA DO DESIGNER: ${message}${focus?.label ? `\nEle selecionou na tela: ${focus.label}${focus.ref ? ` (${focus.ref})` : ''}.` : ''}`
     : `ABERTURA PROATIVA: o designer acabou de abrir a conversa sobre esta tela. Sem esperar perguntas, traga os 3 pontos que mais merecem a atenção do time agora, em ordem de impacto para quem usa a tela, cada um apontando o elemento e o que fazer. Termine com perguntas que ajudem o designer a seguir.`;
 
@@ -83,13 +85,14 @@ REGRAS DE RESPOSTA
 - Aponte as partes da tela com [E#] dentro do texto. Ao citar texto existente na tela, copie exatamente entre aspas.
 - Texto novo que você sugerir vai em um bloco "texto_sugerido" (de: texto atual exato; para: texto proposto).
 - Não invente dados, números, pesquisas, funcionalidades ou comportamentos que não estão no contexto. O que não dá para ver numa imagem parada (resposta a clique, tempo de carregamento), diga que não dá para avaliar.
-- Máximo de 6 blocos. Em "proximas", até 3 perguntas curtas que o designer pode fazer em seguida.
+- Máximo de 8 blocos. Em "proximas", até 3 perguntas curtas que o designer pode fazer em seguida.
 
 Responda SOMENTE este JSON:
 {"blocos": [
   {"tipo": "texto", "texto": "... [E2] ...", "base": ["codigo"]},
   {"tipo": "alternativa", "titulo": "A", "texto": "...", "base": ["codigo"]},
-  {"tipo": "texto_sugerido", "de": "texto atual exato", "para": "texto proposto", "motivo": "...", "base": ["codigo"]}
+  {"tipo": "texto_sugerido", "de": "texto atual exato", "para": "texto proposto", "motivo": "...", "base": ["codigo"]},
+  {"tipo": "melhoria", "prioridade": 1, "titulo": "...", "texto": "problema e mudança, com [E#]", "evidencia": "raiox|teste|ambos", "base": ["codigo", "T2"]}
 ],
 "proximas": ["...", "..."]}`;
 }
@@ -108,7 +111,7 @@ function groundChat(raw: any, s: any, list: any[], valid: Set<string>) {
       .trim();
   let dropped = 0;
   const blocks: any[] = [];
-  for (const b of Array.isArray(raw?.blocos) ? raw.blocos.slice(0, 8) : []) {
+  for (const b of Array.isArray(raw?.blocos) ? raw.blocos.slice(0, 10) : []) {
     const base = (Array.isArray(b?.base) ? b.base : []).map((x: any) => String(x).trim()).filter((x: string) => valid.has(x));
     if (!base.length) {
       dropped++;
@@ -135,10 +138,24 @@ function groundChat(raw: any, s: any, list: any[], valid: Set<string>) {
       dropped++;
       continue;
     }
+    if (tipo === 'melhoria') {
+      const titulo = cleanRefs(String(b?.titulo || '')).slice(0, 140);
+      if (!quotesOk(titulo)) {
+        dropped++;
+        continue;
+      }
+      const fromTest = base.some((x: string) => /^T\d+$/.test(x));
+      let evid = ['raiox', 'teste', 'ambos'].includes(String(b?.evidencia)) ? String(b.evidencia) : 'raiox';
+      if (!fromTest && evid !== 'raiox') evid = 'raiox'; // sem dado de teste, não pode dizer que o teste confirmou
+      if (fromTest && evid === 'raiox') evid = 'ambos';
+      const pr = Math.max(1, Math.min(3, Math.round(Number(b?.prioridade) || 2)));
+      blocks.push({ tipo, prioridade: pr, titulo, texto, evidencia: evid, base });
+      continue;
+    }
     blocks.push(tipo === 'alternativa' ? { tipo, titulo: String(b?.titulo || '').slice(0, 40), texto, base } : { tipo: 'texto', texto, base });
   }
   const used = new Set<string>();
-  blocks.forEach((b) => [...`${b.texto || ''} ${b.motivo || ''}`.matchAll(/\[(E\d+)\]/g)].forEach((m) => used.add(m[1])));
+  blocks.forEach((b) => [...`${b.titulo || ''} ${b.texto || ''} ${b.motivo || ''}`.matchAll(/\[(E\d+)\]/g)].forEach((m) => used.add(m[1])));
   const refs = list.filter((e) => used.has(e.id)).map((e) => ({ id: e.id, label: e.t || e.kind, kind: e.kind, box: e.box }));
   const proximas = (Array.isArray(raw?.proximas) ? raw.proximas : []).map((x: any) => String(x).slice(0, 120)).filter(Boolean).slice(0, 3);
   return { blocks, refs, proximas, dropped };
@@ -153,7 +170,8 @@ export function registerAgentRoutes(app: Express, { load, save, evidence, safeId
       if (idx < 0) return res.status(404).json({ error: 'Tela não encontrada' });
       const s = a.screens[idx];
       const chat: any[] = Array.isArray(s.chat) ? s.chat : [];
-      const message = typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 1000) : '';
+      const mode: 'conversa' | 'proposta' = req.body?.mode === 'proposta' ? 'proposta' : 'conversa';
+      const message = mode === 'proposta' ? 'Proponha as melhorias desta tela.' : typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 1000) : '';
       const focus = req.body?.focus && typeof req.body.focus === 'object' ? { ref: String(req.body.focus.ref || '').slice(0, 8), label: String(req.body.focus.label || '').slice(0, 160) } : null;
       if (!message && chat.length) return res.json({ chat });
       if (!aiEngine()) return res.status(503).json({ error: 'IA não configurada no servidor (GEMINI_API_KEY).' });
@@ -162,9 +180,9 @@ export function registerAgentRoutes(app: Express, { load, save, evidence, safeId
 
       const list = elementList(s);
       const lib = libraryFor(a, s, idx);
-      const ev = evidence(a.prototypeUrl);
+      const ev = evidence(a, s);
       const valid = new Set<string>([...lib.ids, ...(ev ? [...ev.ids] : [])]);
-      const prompt = buildPrompt(a, s, idx, chat, message || null, focus, lib, ev, list);
+      const prompt = buildPrompt(a, s, idx, chat, message || null, focus, lib, ev, list, mode);
 
       let out: ReturnType<typeof groundChat> | null = null;
       let model = '';
@@ -193,7 +211,7 @@ export function registerAgentRoutes(app: Express, { load, save, evidence, safeId
         ];
       const now = new Date().toISOString();
       if (message) chat.push({ role: 'user', text: message, focus, at: now });
-      chat.push({ role: 'agent', blocks: out.blocks, refs: out.refs, proximas: out.proximas, opening: !message, at: now, model, dropped: out.dropped });
+      chat.push({ role: 'agent', blocks: out.blocks, refs: out.refs, proximas: out.proximas, opening: !message, proposal: mode === 'proposta', linked: !!(ev as any)?.linked, at: now, model, dropped: out.dropped });
       a.screens[idx].chat = chat.slice(-40);
       await save(a);
       res.json({ chat: a.screens[idx].chat });
