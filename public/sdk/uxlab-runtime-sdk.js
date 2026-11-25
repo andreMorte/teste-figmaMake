@@ -33,7 +33,7 @@
       console.log('[UXLab SDK] init', config);
     }
   };
-  window.UXLab.version = '3.6.0';
+  window.UXLab.version = '3.7.0';
   window.UXLab.getCurrentScreen = function () {
     return currentScene;
   };
@@ -898,12 +898,13 @@
         }
         if (/^H[1-3]$/.test(tag)) item.hd = Number(tag.slice(1));
       }
+      if (kind === 'acao' || kind === 'campo') item.br = Math.round(parseFloat(st.borderTopLeftRadius) || 0); // raio da borda (consistência)
       if (kind === 'acao') {
         var own = toRgb(st.backgroundColor);
         if (own && own.a > 0.55) {
           var pageBg = backgroundOf(el.parentElement || el);
-          item.filled = true;
           item.fillContrast = pageBg.color ? ratio(own, pageBg.color) : null;
+          item.filled = item.fillContrast === null || item.fillContrast >= 1.3; // branco sobre branco é contorno, não preenchido
           var mx = Math.max(own.r, own.g, own.b), mn = Math.min(own.r, own.g, own.b);
           item.sat = mx ? Math.round(((mx - mn) / mx) * 100) / 100 : 0;
         }

@@ -7,6 +7,7 @@ import { visualApi } from './api';
 import { ExpertResult, VisualAnalysis, VisualAoi, VisualScreen } from './types';
 import { AttentionField, ENGINE_VERSION, clarityLabel, computeAttention, computeMetrics, contrastFailures, focusLabel, paintLayer, withShares, autoAois, loadImage, aoiTone } from './engine';
 import { MapLegend, MapMode, MapView } from './MapView';
+import { A11yIssue, Consistency, ConsistencyCard, SEV_LABEL, SEV_TONE as QSEV_TONE, flowConsistency, screenA11y } from './quality';
 
 const tone = (v: number | null | undefined, good = 70, mid = 45) => (v === null || v === undefined ? 'text-slate-400' : v >= good ? 'text-emerald-600' : v >= mid ? 'text-amber-600' : 'text-rose-600');
 const ring = (v: number | null | undefined, good = 70, mid = 45) => (v === null || v === undefined ? '#cbd5e1' : v >= good ? '#059669' : v >= mid ? '#d97706' : '#e11d48');
@@ -75,7 +76,8 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
   const [showAois, setShowAois] = useState(true);
   const [drawing, setDrawing] = useState(false);
   const [selAoi, setSelAoi] = useState<string | null>(null);
-  const [tab, setTab] = useState<'geral' | 'areas' | 'especialista'>('geral');
+  const [tab, setTab] = useState<'geral' | 'areas' | 'acessibilidade' | 'especialista'>('geral');
+  const [activeIssue, setActiveIssue] = useState<number | null>(null);
   const [running, setRunning] = useState<string | null>(null);
   const [expertErr, setExpertErr] = useState<Record<string, string>>({});
   const [stopQueue, setStopQueue] = useState('');
@@ -97,6 +99,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
   }, [id]);
 
   const screen = a?.screens.find((s) => s.id === sel) || null;
+  const a11y = useMemo(() => (screen ? screenA11y(screen) : null), [screen]);
 
   // campo de atenção da tela aberta (e métricas atualizadas se o motor mudou)
   useEffect(() => {
@@ -332,6 +335,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                     onClick={() => {
                       setSel(s.id);
                       setSelAoi(null);
+                      setActiveIssue(null);
                       setDrawing(false);
                     }}
                     className={`w-full flex items-center gap-2 p-1.5 rounded-xl text-left ${sel === s.id ? 'bg-violet-50 ring-1 ring-violet-200' : 'hover:bg-slate-50'}`}
@@ -408,6 +412,8 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                       selected={selAoi}
                       onSelect={setSelAoi}
                       canvasRef={layerRef}
+                      markers={tab === 'acessibilidade' && a11y ? a11y.issues.filter((i) => i.box).map((i, n) => ({ n: n + 1, box: i.box!, active: activeIssue === n + 1 })) : undefined}
+                      onMarker={(n) => setActiveIssue(n)}
                       onDrawn={(r) => {
                         const n = screen.aois.filter((x) => !x.auto).length + 1;
                         const ar: VisualAoi = { id: `A-${uid()}`, name: `Área ${n}`, ...r };
@@ -435,6 +441,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                     [
                       ['geral', 'Visão geral'],
                       ['areas', 'Áreas'],
+                      ['acessibilidade', 'Acessibilidade'],
                       ['especialista', 'Especialista']
                     ] as const
                   ).map(([k, l]) => (
@@ -447,6 +454,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                       className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-semibold ${tab === k ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                       {l}
+                      {k === 'acessibilidade' && a11y && a11y.issues.length > 0 && <span className="ml-1 text-[10px] font-bold text-rose-600">{a11y.issues.length}</span>}
                     </button>
                   ))}
                 </div>
@@ -467,6 +475,7 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                       onReset={() => setAois(autoAois(screen))}
                     />
                   )}
+                  {tab === 'acessibilidade' && a11y && <A11yTab mobile={a11y.mobile} issues={a11y.issues} active={activeIssue} onActive={setActiveIssue} />}
                   {tab === 'especialista' && (
                     <ExpertTab ex={screen.expert} running={running === screen.id} error={expertErr[screen.id]} onRun={() => runExpert(screen.id)} />
                   )}
@@ -786,6 +795,52 @@ const avg = (xs: (number | null | undefined)[]) => {
 };
 
 const FlowOverview: React.FC<{ a: VisualAnalysis; onOpen: (sid: string) => void }> = ({ a, onOpen }) => {
+  const [view, setView] = useState<'resumo' | 'consistencia' | 'acessibilidade'>('resumo');
+  const cons = useMemo(() => flowConsistency(a.screens), [a]);
+  const a11yAll = useMemo(() => a.screens.map((s) => screenA11y(s)), [a]);
+  const a11yCount = a11yAll.reduce((t, x) => t + x.issues.length, 0);
+  const consCount = cons.cards.filter((c) => c.sev > 0).length;
+  const tabs = (
+    <div className="inline-flex p-1 rounded-xl bg-slate-100 w-fit" role="tablist" aria-label="Visão do fluxo">
+      {(
+        [
+          ['resumo', 'Resumo', 0],
+          ['consistencia', 'Consistência', consCount],
+          ['acessibilidade', 'Acessibilidade', a11yCount]
+        ] as const
+      ).map(([k, l, n]) => (
+        <button
+          key={k}
+          type="button"
+          role="tab"
+          aria-selected={view === k}
+          onClick={() => setView(k)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${view === k ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+        >
+          {l}
+          {n > 0 && <span className="ml-1.5 text-[10px] font-bold text-rose-600">{n}</span>}
+        </button>
+      ))}
+    </div>
+  );
+  if (view === 'consistencia')
+    return (
+      <div className="space-y-4 min-w-0">
+        {tabs}
+        <ConsistencyView c={cons} total={a.screens.length} mobile={a.device === 'mobile'} />
+      </div>
+    );
+  if (view === 'acessibilidade')
+    return (
+      <div className="space-y-4 min-w-0">
+        {tabs}
+        <FlowA11yView a={a} all={a11yAll} onOpen={onOpen} />
+      </div>
+    );
+  return <FlowSummary a={a} onOpen={onOpen} tabs={tabs} />;
+};
+
+const FlowSummary: React.FC<{ a: VisualAnalysis; onOpen: (sid: string) => void; tabs: React.ReactNode }> = ({ a, onOpen, tabs }) => {
   const problems = useMemo(
     () =>
       a.screens
@@ -797,6 +852,7 @@ const FlowOverview: React.FC<{ a: VisualAnalysis; onOpen: (sid: string) => void 
   const withExpert = a.screens.filter((s) => s.expert);
   return (
     <div className="space-y-4 min-w-0">
+      {tabs}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <Gauge value={avg(a.screens.map((s) => s.metrics?.clarity))} label="Clareza média" />
         <Gauge value={avg(a.screens.map((s) => s.metrics?.focus))} label="Foco médio" good={66} mid={40} />
@@ -912,6 +968,241 @@ const FlowOverview: React.FC<{ a: VisualAnalysis; onOpen: (sid: string) => void 
   );
 };
 
+
+// ---------------------------------------------------------------------------
+const CritBadge: React.FC<{ mobile: boolean }> = ({ mobile }) => (
+  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${mobile ? 'bg-violet-50 text-violet-700 border-violet-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+    {mobile ? 'Critérios de celular' : 'Critérios web'}
+  </span>
+);
+
+const A11yTab: React.FC<{ mobile: boolean; issues: A11yIssue[]; active: number | null; onActive: (n: number | null) => void }> = ({ mobile, issues, active, onActive }) => {
+  const [copied, setCopied] = useState('');
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-slate-900">{issues.length ? `${issues.length} ${issues.length === 1 ? 'ponto' : 'pontos'} nesta tela` : 'Nenhum problema medido'}</span>
+        <CritBadge mobile={mobile} />
+      </div>
+      {issues.length === 0 && (
+        <div className="text-xs text-emerald-700 bg-emerald-50 rounded-xl p-3 flex gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" /> Contraste, tamanho dos alvos, rótulos e posição da ação principal dentro dos critérios.
+        </div>
+      )}
+      <ol className="space-y-2">
+        {issues.map((it, i) => (
+          <li
+            key={i}
+            onClick={() => onActive(active === i + 1 ? null : i + 1)}
+            className={`rounded-xl border p-3 flex gap-2.5 cursor-pointer ${active === i + 1 ? 'border-rose-300 bg-rose-50/40' : 'border-slate-200 hover:bg-slate-50'}`}
+          >
+            <span className="w-5 h-5 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-semibold text-slate-900">{it.title}</span>
+                <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 ${QSEV_TONE[it.sev]}`}>{SEV_LABEL[it.sev]}</span>
+              </div>
+              <p className="text-[11px] text-slate-600">{it.desc}</p>
+              {it.color && (
+                <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-600">
+                  <span className="w-6 h-6 rounded-md border border-black/10" style={{ background: it.color.from }} />
+                  <span>
+                    atual <b className="text-slate-800">{it.color.from}</b> · {String(it.color.fromRatio).replace('.', ',')}:1
+                  </span>
+                  <span className="text-slate-300">→</span>
+                  <span className="w-6 h-6 rounded-md border border-black/10" style={{ background: it.color.to }} />
+                  <span>
+                    sugerida <b className="text-slate-800">{it.color.to}</b> · {String(it.color.toRatio).replace('.', ',')}:1
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard?.writeText(it.color!.to);
+                      setCopied(it.color!.to);
+                      setTimeout(() => setCopied(''), 1500);
+                    }}
+                    className="ml-auto font-semibold text-blue-700 hover:underline"
+                  >
+                    {copied === it.color.to ? 'Copiada!' : 'Copiar cor'}
+                  </button>
+                </div>
+              )}
+              <div className="text-[11px] text-emerald-800 bg-emerald-50 rounded-md px-2 py-1.5">
+                <b>Correção:</b> {it.fix}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <p className="text-[10px] text-slate-400">
+        {mobile
+          ? 'Celular: alvo de toque de 44–48px, fonte de campo a partir de 16px, ação principal ao alcance sem rolar. Contraste segundo o WCAG AA.'
+          : 'Web: alvo mínimo de 24px (WCAG 2.2), linhas de até ~75 caracteres, ação principal na primeira dobra (900px). Contraste segundo o WCAG AA.'}
+      </p>
+    </div>
+  );
+};
+
+const ConsistencyView: React.FC<{ c: Consistency; total: number; mobile: boolean }> = ({ c, total, mobile }) => (
+  <div className="space-y-4">
+    <div className="rounded-2xl bg-white border border-slate-200 p-4 flex flex-wrap items-center gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
+          Consistência do fluxo <CritBadge mobile={mobile} />
+        </div>
+        <p className="text-xs text-slate-500 mt-0.5">Compara as {total} telas entre si e mostra onde o protótipo foge de um padrão único de tipografia, cor, botões e campos.</p>
+      </div>
+      <div className="grid grid-cols-4 gap-2 text-center">
+        {(
+          [
+            [c.fontSizes, 'tamanhos de fonte'],
+            [c.nearColors, 'cores quase iguais'],
+            [c.buttonStyles, 'estilos de botão principal'],
+            [c.fieldStyles, 'estilos de campo']
+          ] as const
+        ).map(([v, l]) => (
+          <div key={l} className="rounded-xl border border-slate-200 px-3 py-2 min-w-[92px]">
+            <div className="text-lg font-bold text-slate-900">{v}</div>
+            <div className="text-[10px] text-slate-500 leading-tight">{l}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {c.cards.map((card) => (
+        <ConsistencyCardView key={card.key} card={card} />
+      ))}
+    </div>
+    {total < 2 && <p className="text-xs text-slate-400">Com uma tela só, a comparação fica limitada. Adicione as outras telas do fluxo para ver a consistência entre elas.</p>}
+  </div>
+);
+
+const ConsistencyCardView: React.FC<{ card: ConsistencyCard }> = ({ card }) => (
+  <div className="rounded-2xl bg-white border border-slate-200 p-4 space-y-3">
+    <div className="flex items-center justify-between">
+      <span className="text-sm font-semibold text-slate-900">{card.title}</span>
+      <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 ${QSEV_TONE[card.sev]}`}>{SEV_LABEL[card.sev]}</span>
+    </div>
+    {card.fonts && (
+      <div className="flex flex-wrap gap-1.5">
+        {card.fonts.map((f) => (
+          <span key={f.size} className={`text-[11px] rounded-md border px-1.5 py-0.5 ${f.rare && f.to ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+            {f.size}px <b>·{f.count}</b>
+          </span>
+        ))}
+      </div>
+    )}
+    {card.colors && card.colors.length > 0 && (
+      <div className="space-y-1.5">
+        {card.colors.map((co) => (
+          <div key={co.hex} className="flex items-center gap-2 text-[11px] text-slate-600">
+            <span className="w-6 h-6 rounded-md border border-black/10 shrink-0" style={{ background: co.hex }} />
+            <b className="text-slate-800">{co.hex}</b>
+            <span className="truncate">
+              · {co.use} · {co.count} {co.count === 1 ? 'uso' : 'usos'} · passo {co.steps.join(', ')}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+    {card.styles && (
+      <div className="space-y-2">
+        {card.styles.map((st, i) => (
+          <div key={i} className="flex items-center gap-2 text-[11px] text-slate-600">
+            <span
+              className="px-2.5 text-[11px] font-semibold inline-flex items-center shrink-0 max-w-[130px] truncate"
+              style={{
+                height: Math.max(22, Math.min(st.h, 48)) * 0.75,
+                borderRadius: st.br ?? 6,
+                background: st.filled ? st.bg : '#fff',
+                color: st.filled ? '#fff' : st.fg,
+                border: st.filled ? 'none' : `1px solid ${st.fg}`
+              }}
+            >
+              {st.label}
+            </span>
+            <span>
+              {st.h}px{st.br !== undefined ? ` · raio ${st.br}` : ''} · passo {st.steps.join(', ')}
+              {st.main && card.styles!.length > 1 ? (card.tie ? ' · referência' : ' · mais usado') : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+    <p className="text-xs text-slate-600">{card.summary}</p>
+    {card.suggestion && <div className="text-[11px] text-emerald-800 bg-emerald-50 rounded-md px-2 py-1.5">{card.suggestion}</div>}
+    {card.where.length > 0 && <div className="text-[11px] text-slate-400">Aparece em: passo {card.where.join(', ')}</div>}
+  </div>
+);
+
+const FlowA11yView: React.FC<{ a: VisualAnalysis; all: { mobile: boolean; issues: A11yIssue[] }[]; onOpen: (sid: string) => void }> = ({ a, all, onOpen }) => {
+  const kinds: [A11yIssue['kind'], string][] = [
+    ['contraste', 'Contraste'],
+    ['alvo', 'Alvo pequeno'],
+    ['rotulo', 'Sem rótulo'],
+    ['fonte-campo', 'Fonte de campo'],
+    ['dobra', 'Abaixo da dobra'],
+    ['linha', 'Linha longa']
+  ];
+  const used = kinds.filter(([k]) => all.some((x) => x.issues.some((i) => i.kind === k)));
+  return (
+    <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-slate-900">Acessibilidade por tela</span>
+        <CritBadge mobile={a.device === 'mobile'} />
+        <span className="text-xs text-slate-500">Clique numa tela para ver cada ponto com a correção pronta.</span>
+      </div>
+      {used.length === 0 ? (
+        <div className="p-4 text-xs text-emerald-700">Nenhum problema de acessibilidade medido no fluxo.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="text-left font-medium px-4 py-2">Tela</th>
+                {used.map(([k, l]) => (
+                  <th key={k} className="font-medium px-2 py-2">
+                    {l}
+                  </th>
+                ))}
+                <th className="font-medium px-2 py-2">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {a.screens.map((s, i) => {
+                const iss = all[i].issues;
+                return (
+                  <tr key={s.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => onOpen(s.id)}>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2 min-w-[180px]">
+                        <img src={s.thumb || s.image} alt="" className="w-12 h-9 rounded-md object-cover object-top bg-slate-100" />
+                        <div className="min-w-0">
+                          <div className="text-[10px] text-slate-400">Passo {i + 1}</div>
+                          <div className="font-medium text-slate-800 truncate">{s.name}</div>
+                        </div>
+                      </div>
+                    </td>
+                    {used.map(([k]) => {
+                      const n = iss.filter((x) => x.kind === k).length;
+                      return (
+                        <td key={k} className={`text-center font-semibold ${n ? 'text-rose-600' : 'text-slate-300'}`}>
+                          {n || '–'}
+                        </td>
+                      );
+                    })}
+                    <td className={`text-center font-bold ${iss.length ? 'text-slate-900' : 'text-emerald-600'}`}>{iss.length || 'ok'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ---------------------------------------------------------------------------
 const PrintReport: React.FC<{ a: VisualAnalysis; imgs: Record<string, string> }> = ({ a, imgs }) => (
   <div className="hidden print:block text-slate-900 text-[11px]">
@@ -944,8 +1235,25 @@ const PrintReport: React.FC<{ a: VisualAnalysis; imgs: Record<string, string> }>
         ))}
       </tbody>
     </table>
+    {(() => {
+      const c = flowConsistency(a.screens);
+      const cards = c.cards.filter((x) => x.sev > 0);
+      return cards.length ? (
+        <div className="mb-6">
+          <h2 className="text-base font-bold">Consistência do fluxo</h2>
+          <ul className="list-disc pl-5">
+            {cards.map((x) => (
+              <li key={x.key}>
+                [{SEV_LABEL[x.sev]}] {x.title}: {x.summary} {x.suggestion}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null;
+    })()}
     {a.screens.map((s, i) => {
       const sig = measuredSignals(s);
+      const acc = screenA11y(s);
       return (
         <section key={s.id} style={{ breakBefore: 'page' }} className="space-y-2">
           <h2 className="text-base font-bold">
@@ -976,6 +1284,18 @@ const PrintReport: React.FC<{ a: VisualAnalysis; imgs: Record<string, string> }>
                 {s.expert!.problemas.map((p, k) => (
                   <li key={k}>
                     [{SEV[p.severidade]}] {p.titulo}. {p.recomendacao} {p.principios.length ? `(${p.principios.join('; ')})` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {acc.issues.length > 0 && (
+            <div>
+              <b>Acessibilidade ({acc.mobile ? 'critérios de celular' : 'critérios web'}):</b>
+              <ul className="list-disc pl-5">
+                {acc.issues.map((t, k) => (
+                  <li key={k}>
+                    [{SEV_LABEL[t.sev]}] {t.title}: {t.desc} Correção: {t.fix}
                   </li>
                 ))}
               </ul>

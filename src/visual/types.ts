@@ -23,6 +23,7 @@ export interface VisualElement {
   sat?: number;
   disabled?: boolean;
   dl?: 0 | 1; // dentro do diálogo aberto
+  br?: number; // raio da borda (ações e campos)
 }
 
 /** Área de interesse em coordenadas da IMAGEM capturada. */

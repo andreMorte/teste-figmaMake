@@ -4,7 +4,7 @@
 // preenchidos, campos, imagens), viés de posição (centro e leitura em F) e queda abaixo da primeira dobra.
 import { VisualAoi, VisualElement, VisualMetrics, VisualScreen } from './types';
 
-export const ENGINE_VERSION = 2;
+export const ENGINE_VERSION = 3;
 const GRID_W = 200;
 
 export interface AttentionField {
@@ -86,7 +86,7 @@ export function prominence(e: VisualElement, vw: number) {
   const area = e.w * e.h;
   if (e.k === 'acao') {
     let p = 0.55;
-    if (e.filled) p += 0.45 + (e.sat || 0) * 0.5 + lin(e.fillContrast || 1, 1, 4) * 0.4;
+    if (e.filled && (e.fillContrast ?? 2) >= 1.3) p += 0.45 + (e.sat || 0) * 0.5 + lin(e.fillContrast || 1, 1, 4) * 0.4;
     p *= 0.7 + lin(area, 600, 12000) * 0.6;
     if (e.disabled) p *= 0.4;
     return p;

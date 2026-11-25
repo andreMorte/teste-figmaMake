@@ -18,7 +18,10 @@ export const MapView: React.FC<{
   onSelect?: (id: string | null) => void;
   onDrawn?: (r: { x: number; y: number; w: number; h: number }) => void;
   canvasRef?: React.MutableRefObject<HTMLCanvasElement | null>;
-}> = ({ screen, field, mode, aois, showAois, drawing, selected, onSelect, onDrawn, canvasRef }) => {
+  /** Pontos numerados (ex.: problemas de acessibilidade), em coordenadas da imagem */
+  markers?: { n: number; box: { x: number; y: number; w: number; h: number }; active?: boolean }[];
+  onMarker?: (n: number) => void;
+}> = ({ screen, field, mode, aois, showAois, drawing, selected, onSelect, onDrawn, canvasRef, markers, onMarker }) => {
   const layer = useRef<HTMLCanvasElement | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -102,6 +105,24 @@ export const MapView: React.FC<{
             </span>
           </button>
         ))}
+
+      {(markers || []).map((m) => (
+        <React.Fragment key={m.n}>
+          <div
+            className={`absolute border-2 rounded pointer-events-none ${m.active ? 'border-rose-600 bg-rose-500/10' : 'border-rose-500/80'}`}
+            style={{ left: pct(m.box.x, W), top: pct(m.box.y, H), width: pct(Math.max(m.box.w, 6), W), height: pct(Math.max(m.box.h, 6), H) }}
+          />
+          <button
+            type="button"
+            onClick={() => onMarker?.(m.n)}
+            className={`absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full text-[11px] font-bold text-white flex items-center justify-center shadow ring-2 ring-white ${m.active ? 'bg-rose-700 scale-110' : 'bg-rose-600'}`}
+            style={{ left: pct(m.box.x + m.box.w, W), top: pct(m.box.y, H) }}
+            aria-label={`Ponto ${m.n}`}
+          >
+            {m.n}
+          </button>
+        </React.Fragment>
+      ))}
 
       {drag && (
         <div
