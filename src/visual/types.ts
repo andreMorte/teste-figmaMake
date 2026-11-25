@@ -99,7 +99,24 @@ export interface VisualScreen {
   aois: VisualAoi[];
   metrics?: VisualMetrics;
   expert?: ExpertResult;
+  chat?: ChatMsg[];
   capturedAt: string;
+}
+
+export type ChatBlock =
+  | { tipo: 'texto'; texto: string; base: string[] }
+  | { tipo: 'alternativa'; titulo: string; texto: string; base: string[] }
+  | { tipo: 'texto_sugerido'; de: string; para: string; motivo?: string; base: string[] };
+
+export interface ChatMsg {
+  role: 'user' | 'agent';
+  text?: string;
+  focus?: { ref?: string; label?: string } | null;
+  blocks?: ChatBlock[];
+  refs?: { id: string; label: string; kind: string; box: { x: number; y: number; w: number; h: number } }[];
+  proximas?: string[];
+  opening?: boolean;
+  at: string;
 }
 
 export interface VisualAnalysis {

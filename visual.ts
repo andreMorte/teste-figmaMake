@@ -5,8 +5,9 @@ import type { Express } from 'express';
 import type { Pool } from 'pg';
 import { aiVision, aiEngine } from './qualitative';
 import { knowledgeFor } from './visual-knowledge';
+import { registerAgentRoutes, Evidence } from './visual-agent';
 
-type Opts = { pool: Pool | null; dataDir: string };
+type Opts = { pool: Pool | null; dataDir: string; evidence?: (prototypeUrl: string) => Evidence };
 
 const NIELSEN = [
   'Visibilidade do status do sistema',
@@ -56,7 +57,7 @@ function metaOf(a: any) {
   };
 }
 
-export function registerVisualRoutes(app: Express, { pool, dataDir }: Opts) {
+export function registerVisualRoutes(app: Express, { pool, dataDir, evidence }: Opts) {
   const dir = path.join(dataDir, 'visual');
   let ready: Promise<void> | null = null;
   const ensure = () => {
@@ -146,7 +147,7 @@ export function registerVisualRoutes(app: Express, { pool, dataDir }: Opts) {
         screens: (Array.isArray(body.screens) ? body.screens : []).slice(0, 40).map((s: any) => {
           // o parecer da IA fica no servidor: o painel pode ter uma cópia antiga
           const old = prev?.screens?.find((p: any) => p.id === s.id);
-          return { ...s, expert: s.expert || old?.expert || undefined };
+          return { ...s, expert: s.expert || old?.expert || undefined, chat: s.chat || old?.chat || undefined };
         })
       };
       await save(a);
@@ -188,6 +189,9 @@ export function registerVisualRoutes(app: Express, { pool, dataDir }: Opts) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Conversa com o especialista (abertura proativa + perguntas do designer)
+  registerAgentRoutes(app, { load, save, evidence: evidence || (() => null), safeId });
 
   // Parecer do especialista para uma tela
   app.post('/api/visual/:id/screens/:sid/expert', async (req, res) => {

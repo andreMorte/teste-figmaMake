@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, Download, Eye, Focus, Contrast, Image as ImageIcon, SquareDashed, Plus, Loader2, Sparkles, RefreshCw, Trash2, AlertTriangle, CheckCircle2,
+  ArrowLeft, Send, MessageSquareText, X, Copy, Check, Download, Eye, Focus, Contrast, Image as ImageIcon, SquareDashed, Plus, Loader2, Sparkles, RefreshCw, Trash2, AlertTriangle, CheckCircle2,
   Layers, FileText, FileSpreadsheet, ImageDown, ChevronDown, Brain, Heart, ListOrdered, Monitor, Smartphone, Info
 } from 'lucide-react';
 import { visualApi } from './api';
 import { ExpertResult, VisualAnalysis, VisualAoi, VisualScreen } from './types';
 import { AttentionField, ENGINE_VERSION, clarityLabel, computeAttention, computeMetrics, contrastFailures, focusLabel, paintLayer, withShares, autoAois, loadImage, aoiTone } from './engine';
 import { MapLegend, MapMode, MapView } from './MapView';
+import { elementList } from './elements';
+import { ChatMsg, ChatBlock } from './types';
 import { A11yIssue, Consistency, ConsistencyCard, SEV_LABEL, SEV_TONE as QSEV_TONE, flowConsistency, screenA11y } from './quality';
 
 const tone = (v: number | null | undefined, good = 70, mid = 45) => (v === null || v === undefined ? 'text-slate-400' : v >= good ? 'text-emerald-600' : v >= mid ? 'text-amber-600' : 'text-rose-600');
@@ -78,6 +80,12 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
   const [selAoi, setSelAoi] = useState<string | null>(null);
   const [tab, setTab] = useState<'geral' | 'areas' | 'acessibilidade' | 'especialista'>('geral');
   const [activeIssue, setActiveIssue] = useState<number | null>(null);
+  // conversa com o especialista
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatErr, setChatErr] = useState('');
+  const [chatFocus, setChatFocus] = useState<{ ref?: string; label?: string } | null>(null);
+  const [pin, setPin] = useState<{ msg: number | null; ref: string | null }>({ msg: null, ref: null });
   const [running, setRunning] = useState<string | null>(null);
   const [expertErr, setExpertErr] = useState<Record<string, string>>({});
   const [stopQueue, setStopQueue] = useState('');
@@ -151,6 +159,45 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
     },
     [id]
   );
+  const sendChat = useCallback(
+    async (sid: string, message?: string, focus?: { ref?: string; label?: string } | null) => {
+      setChatBusy(true);
+      setChatErr('');
+      if (message) {
+        // mostra a pergunta na hora; a resposta chega depois
+        setA((cur) =>
+          cur
+            ? { ...cur, screens: cur.screens.map((x) => (x.id === sid ? { ...x, chat: [...(x.chat || []), { role: 'user', text: message, focus, at: new Date().toISOString() } as ChatMsg] } : x)) }
+            : cur
+        );
+      }
+      try {
+        const r = await visualApi.chat(id, sid, { message, focus });
+        setA((cur) => (cur ? { ...cur, screens: cur.screens.map((x) => (x.id === sid ? { ...x, chat: r.chat } : x)) } : cur));
+        setPin({ msg: null, ref: null });
+        setChatFocus(null);
+      } catch (err: any) {
+        setChatErr(err.message);
+        if (message) setA((cur) => (cur ? { ...cur, screens: cur.screens.map((x) => (x.id === sid ? { ...x, chat: (x.chat || []).slice(0, -1) } : x)) } : cur));
+      } finally {
+        setChatBusy(false);
+      }
+    },
+    [id]
+  );
+  const openChat = () => {
+    setChatOpen(true);
+    setChatErr('');
+    if (screen && !(screen.chat || []).length && !chatBusy) sendChat(screen.id); // abertura proativa
+  };
+  const elementsForChat = useMemo(() => (screen ? elementList(screen) : []), [screen]);
+  const chatMsgs = screen?.chat || [];
+  const pinnedIdx = pin.msg ?? (() => {
+    for (let i = chatMsgs.length - 1; i >= 0; i--) if (chatMsgs[i].role === 'agent' && (chatMsgs[i].refs || []).length) return i;
+    return null;
+  })();
+  const pinRefs = pinnedIdx !== null ? chatMsgs[pinnedIdx]?.refs || [] : [];
+
   const queueStarted = useRef(false);
   useEffect(() => {
     if (!a || queueStarted.current) return;
@@ -336,6 +383,8 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                       setSel(s.id);
                       setSelAoi(null);
                       setActiveIssue(null);
+                      setChatFocus(null);
+                      setPin({ msg: null, ref: null });
                       setDrawing(false);
                     }}
                     className={`w-full flex items-center gap-2 p-1.5 rounded-xl text-left ${sel === s.id ? 'bg-violet-50 ring-1 ring-violet-200' : 'hover:bg-slate-50'}`}
@@ -407,13 +456,35 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                       field={fields[screen.id]}
                       mode={mode}
                       aois={screen.aois}
-                      showAois={showAois}
+                      showAois={showAois && !chatOpen}
                       drawing={drawing}
                       selected={selAoi}
                       onSelect={setSelAoi}
                       canvasRef={layerRef}
-                      markers={tab === 'acessibilidade' && a11y ? a11y.issues.filter((i) => i.box).map((i, n) => ({ n: n + 1, box: i.box!, active: activeIssue === n + 1 })) : undefined}
-                      onMarker={(n) => setActiveIssue(n)}
+                      markers={
+                        chatOpen
+                          ? [
+                              ...pinRefs.map((r) => ({ n: Number(r.id.slice(1)), box: r.box, active: pin.ref === r.id })),
+                              ...(chatFocus?.ref && !pinRefs.some((r) => r.id === chatFocus.ref)
+                                ? elementsForChat.filter((e) => e.id === chatFocus.ref).map((e) => ({ n: Number(e.id.slice(1)), box: e.box, active: true }))
+                                : [])
+                            ]
+                          : tab === 'acessibilidade' && a11y
+                          ? a11y.issues.filter((i) => i.box).map((i, n) => ({ n: n + 1, box: i.box!, active: activeIssue === n + 1 }))
+                          : undefined
+                      }
+                      markerTone={chatOpen ? 'violet' : 'rose'}
+                      onMarker={(n) => (chatOpen ? setPin((p) => ({ ...p, ref: `E${n}` })) : setActiveIssue(n))}
+                      onPick={
+                        chatOpen
+                          ? (pt) => {
+                              const hit = elementsForChat
+                                .filter((e) => pt.x >= e.box.x && pt.x <= e.box.x + e.box.w && pt.y >= e.box.y && pt.y <= e.box.y + e.box.h)
+                                .sort((x, y) => x.box.w * x.box.h - y.box.w * y.box.h)[0];
+                              if (hit) setChatFocus({ ref: hit.id, label: `${hit.kind}${hit.t ? ` "${hit.t}"` : ''}` });
+                            }
+                          : undefined
+                      }
                       onDrawn={(r) => {
                         const n = screen.aois.filter((x) => !x.auto).length + 1;
                         const ar: VisualAoi = { id: `A-${uid()}`, name: `Área ${n}`, ...r };
@@ -436,6 +507,37 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
 
               {/* painel */}
               <div className="rounded-2xl bg-white border border-slate-200 min-w-0">
+                {chatOpen ? (
+                  <ChatPanel
+                    msgs={chatMsgs}
+                    busy={chatBusy}
+                    error={chatErr}
+                    focus={chatFocus}
+                    pinnedIdx={pinnedIdx}
+                    activeRef={pin.ref}
+                    onClose={() => {
+                      setChatOpen(false);
+                      setChatFocus(null);
+                    }}
+                    onClearFocus={() => setChatFocus(null)}
+                    onRef={(msg, ref) => setPin({ msg, ref })}
+                    onSend={(text) => sendChat(screen.id, text, chatFocus)}
+                    onRestart={async () => {
+                      await visualApi.clearChat(id, screen.id).catch(() => {});
+                      updateScreen(screen.id, { chat: [] }, false);
+                      sendChat(screen.id);
+                    }}
+                  />
+                ) : (
+                <>
+                <button
+                  type="button"
+                  onClick={openChat}
+                  className="m-3 mb-0 w-[calc(100%-1.5rem)] px-3 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 hover:opacity-95 text-white text-xs font-semibold inline-flex items-center justify-center gap-2"
+                >
+                  <MessageSquareText className="w-4 h-4" /> Conversar com o especialista
+                  {chatMsgs.length > 0 && <span className="text-white/70 font-normal">· {chatMsgs.filter((m) => m.role === 'user').length} perguntas</span>}
+                </button>
                 <div className="flex p-1 m-3 mb-0 rounded-xl bg-slate-100" role="tablist">
                   {(
                     [
@@ -480,6 +582,8 @@ export const VisualReport: React.FC<{ id: string; onBack: () => void; onAddScree
                     <ExpertTab ex={screen.expert} running={running === screen.id} error={expertErr[screen.id]} onRun={() => runExpert(screen.id)} />
                   )}
                 </div>
+                </>
+                )}
               </div>
             </div>
           )}
@@ -968,6 +1072,189 @@ const FlowSummary: React.FC<{ a: VisualAnalysis; onOpen: (sid: string) => void; 
   );
 };
 
+
+
+// ---------------------------------------------------------------------------
+// Conversa com o especialista: cada parte citada vira um número na tela
+const RefText: React.FC<{ text: string; msg: number; activeRef: string | null; pinned: boolean; refs: ChatMsg['refs']; onRef: (msg: number, ref: string) => void }> = ({
+  text,
+  msg,
+  activeRef,
+  pinned,
+  refs,
+  onRef
+}) => {
+  const parts = text.split(/(\[E\d+\])/g);
+  return (
+    <>
+      {parts.map((p, i) => {
+        const m = /^\[(E\d+)\]$/.exec(p);
+        if (!m) return <React.Fragment key={i}>{p}</React.Fragment>;
+        const r = (refs || []).find((x) => x.id === m[1]);
+        if (!r) return null;
+        const on = pinned && activeRef === r.id;
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onRef(msg, r.id)}
+            className={`inline-flex items-center gap-1 rounded-full border pl-0.5 pr-2 align-[1px] text-[11px] font-semibold mx-0.5 ${
+              on ? 'bg-violet-600 border-violet-600 text-white' : 'bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100'
+            }`}
+          >
+            <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center ${on ? 'bg-white text-violet-700' : 'bg-violet-600 text-white'}`}>{r.id.slice(1)}</span>
+            <span className="max-w-[150px] truncate">{r.label}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+};
+
+const ChatPanel: React.FC<{
+  msgs: ChatMsg[];
+  busy: boolean;
+  error: string;
+  focus: { ref?: string; label?: string } | null;
+  pinnedIdx: number | null;
+  activeRef: string | null;
+  onClose: () => void;
+  onClearFocus: () => void;
+  onRef: (msg: number, ref: string) => void;
+  onSend: (text: string) => void;
+  onRestart: () => void;
+}> = ({ msgs, busy, error, focus, pinnedIdx, activeRef, onClose, onClearFocus, onRef, onSend, onRestart }) => {
+  const [text, setText] = useState('');
+  const [copied, setCopied] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' });
+  }, [msgs.length, busy]);
+  const last = [...msgs].reverse().find((m) => m.role === 'agent');
+  const quick = last?.proximas?.length ? last.proximas : ['Por que isso é grave?', 'Reescreva os textos desta tela', 'Como um corretor usaria esta tela?'];
+  const send = (t: string) => {
+    const v = t.trim();
+    if (!v || busy) return;
+    setText('');
+    onSend(v);
+  };
+  return (
+    <div className="flex flex-col h-[78vh] min-h-[520px]">
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2.5">
+        <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 text-white flex items-center justify-center shrink-0">
+          <Sparkles className="w-4 h-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-slate-900">Especialista em produto</div>
+          <div className="text-[11px] text-slate-500 truncate">UX, interface e rotina do corretor · baseado no que já foi estudado e testado</div>
+        </div>
+        <button type="button" onClick={onRestart} disabled={busy} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40" title="Recomeçar a conversa">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Voltar ao parecer" aria-label="Fechar conversa">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {msgs.map((m, i) =>
+          m.role === 'user' ? (
+            <div key={i} className="flex flex-col items-end gap-1">
+              {m.focus?.label && <span className="text-[10px] text-violet-700">sobre {m.focus.label}</span>}
+              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-slate-100 px-3 py-2 text-xs text-slate-900">{m.text}</div>
+            </div>
+          ) : (
+            <div key={i} className={`space-y-2 text-xs leading-relaxed text-slate-700 rounded-xl p-2 -m-2 ${pinnedIdx === i ? 'bg-violet-50/40' : ''}`}>
+              {m.opening && <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-600">O que merece atenção nesta tela</div>}
+              {(m.blocks || []).map((b: ChatBlock, k) =>
+                b.tipo === 'texto_sugerido' ? (
+                  <div key={k} className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-2.5 space-y-1">
+                    <div className="text-[10px] font-semibold text-emerald-800 uppercase tracking-wider">Texto sugerido</div>
+                    <div className="text-[11px] text-slate-500 line-through">{b.de}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-900 flex-1">{b.para}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(b.para);
+                          setCopied(b.para);
+                          setTimeout(() => setCopied(''), 1500);
+                        }}
+                        className="text-[11px] font-semibold text-emerald-800 inline-flex items-center gap-1"
+                      >
+                        {copied === b.para ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copied === b.para ? 'Copiado' : 'Copiar'}
+                      </button>
+                    </div>
+                    {b.motivo && (
+                      <div className="text-[11px] text-slate-600">
+                        <RefText text={b.motivo} msg={i} activeRef={activeRef} pinned={pinnedIdx === i} refs={m.refs} onRef={onRef} />
+                      </div>
+                    )}
+                  </div>
+                ) : b.tipo === 'alternativa' ? (
+                  <div key={k} className="rounded-lg border border-slate-200 bg-white p-2.5">
+                    {b.titulo && <b className="text-slate-900">{b.titulo} · </b>}
+                    <RefText text={b.texto} msg={i} activeRef={activeRef} pinned={pinnedIdx === i} refs={m.refs} onRef={onRef} />
+                  </div>
+                ) : (
+                  <p key={k}>
+                    <RefText text={b.texto} msg={i} activeRef={activeRef} pinned={pinnedIdx === i} refs={m.refs} onRef={onRef} />
+                  </p>
+                )
+              )}
+            </div>
+          )
+        )}
+        {busy && (
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-500" /> {msgs.length ? 'Analisando…' : 'Olhando a tela e o que já foi testado…'}
+          </div>
+        )}
+        {error && <div className="text-xs text-rose-600">{error}</div>}
+        <div ref={endRef} />
+      </div>
+
+      <div className="border-t border-slate-100 p-3 space-y-2">
+        {!busy && msgs.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {quick.map((q) => (
+              <button key={q} type="button" onClick={() => send(q)} className="text-[11px] rounded-full border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1 text-slate-700">
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
+        {focus?.label ? (
+          <div className="flex items-center gap-2 text-[11px] text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-2 py-1.5">
+            <span className="truncate">Sobre: {focus.label}</span>
+            <button type="button" onClick={onClearFocus} className="ml-auto text-violet-600 hover:text-violet-900" aria-label="Tirar seleção">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="text-[10px] text-slate-400">Dica: clique numa parte da tela para perguntar sobre ela.</div>
+        )}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(text);
+          }}
+          className="flex items-center gap-2"
+        >
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Pergunte sobre esta tela…"
+            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-xs outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
+          />
+          <button type="submit" disabled={busy || !text.trim()} className="p-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white" aria-label="Enviar">
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 const CritBadge: React.FC<{ mobile: boolean }> = ({ mobile }) => (

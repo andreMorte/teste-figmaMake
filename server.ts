@@ -2186,7 +2186,50 @@ function snapshotMeta(snap: any) {
 
 // Serve UXLab SDK files directly
 app.use('/sdk', express.static(path.join(process.cwd(), 'public/sdk')));
-registerVisualRoutes(app, { pool, dataDir: DATA_DIR });
+// Evidência real para o agente do Raio-X: o que os participantes viveram em testes com o mesmo protótipo
+function testEvidenceFor(prototypeUrl: string) {
+  const host = (u: string) => {
+    try {
+      return new URL(/^https?:/i.test(u) ? u : `https://${u}`).host.toLowerCase();
+    } catch {
+      return '';
+    }
+  };
+  const h = host(prototypeUrl || '');
+  if (!h) return null;
+  const tests = serverTestsStore.filter((t) => host(t.prototypeUrl || '') === h);
+  if (!tests.length) return null;
+  const ids = new Set<string>();
+  const lines: string[] = [];
+  let n = 0;
+  for (const t of tests.slice(0, 3)) {
+    const sessions = serverSessionsStore.filter((x) => x.testId === t.id);
+    if (!sessions.length) continue;
+    const sids = new Set(sessions.map((x) => x.sessionId));
+    const events = serverEventsStore.filter((e) => sids.has(e.sessionId));
+    const sus = serverSusResponsesStore.filter((r) => sids.has(r.sessionId));
+    const { items, participants } = collectQualitative(t, sessions, events, sus);
+    const done = participants.filter((p) => p.status === 'Concluiu').length;
+    lines.push(`Teste "${t.name}": ${participants.length} participante(s), ${done} concluíram a jornada.`);
+    (t.tasks || []).forEach((task: any) => {
+      const ok = new Set(events.filter((e) => e.eventType === 'TASK_SUCCESS' && e.taskId === task.id).map((e) => e.sessionId)).size;
+      const id = `T${++n}`;
+      ids.add(id);
+      lines.push(`[${id}] Tarefa "${task.title}": ${ok} de ${participants.length} concluíram.`);
+    });
+    const label: Record<string, string> = { dificuldade: 'relatou dificuldade', desistencia: 'desistiu', ajuda_ia: 'pediu ajuda à IA', comentario_sus: 'comentou', pergunta: 'respondeu' };
+    items
+      .filter((it) => it.source !== 'pergunta' || String(it.text).length > 12)
+      .slice(-25)
+      .forEach((it) => {
+        const id = `T${++n}`;
+        ids.add(id);
+        lines.push(`[${id}] Participante #${String(it.participantNumber || '?').padStart(2, '0')}${it.taskTitle ? ` · tarefa "${it.taskTitle}"` : ''} ${label[it.source] || it.source}${it.question ? ` (pergunta: ${it.question})` : ''}: "${String(it.text).slice(0, 220)}"`);
+      });
+  }
+  return lines.length ? { text: lines.join('\n'), ids } : null;
+}
+registerVisualRoutes(app, { pool, dataDir: DATA_DIR, evidence: testEvidenceFor });
 
 // =========================================================================
 // PROXY DO PROTÓTIPO (mesma origem) — permite injetar o SDK UXLab

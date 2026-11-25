@@ -26,6 +26,7 @@ export interface Traits {
   personalData: boolean;
   payment: boolean;
   insurance: boolean;
+  broker: boolean;
   longText: boolean;
   firstScreen: boolean;
 }
@@ -177,6 +178,19 @@ const BLOCKS: Block[] = [
 - Para profissionais que usam a ferramenta todo dia (como corretores), eficiência pesa: reaproveitar dados já informados, atalhos, menos cliques, informação densa porém organizada.`
   },
   {
+    id: 'corretagem',
+    title: 'Rotina do corretor de seguros',
+    when: (t) => t.insurance || t.broker,
+    text: `- O corretor é o intermediário entre o cliente e as seguradoras; precisa ser habilitado na SUSEP. Ele usa a ferramenta várias vezes por dia: produtividade pesa mais que descoberta.
+- Grande parte das cotações acontece com o cliente no telefone ou no WhatsApp: cada dado que exige perguntar de novo ou procurar em outro lugar atrasa o atendimento.
+- Multicálculo (cotar o mesmo risco em várias seguradoras e comparar) é prática comum: comparação lado a lado de preço, franquia e coberturas é central na decisão.
+- No seguro auto, a cotação costuma pedir dados do condutor e do veículo (placa, modelo, ano, CEP de pernoite, uso) e a classe de bônus do cliente; buscar dados a partir da placa ou do CPF evita digitação.
+- Depois da venda, o corretor acompanha proposta, emissão da apólice, endossos (alterações), vistoria prévia quando exigida, sinistros e renovação: ele precisa ver o que está pendente e o que exige ação dele.
+- A comissão é parte do negócio do corretor: informação de comissão e de condições comerciais é relevante para ele, mas não deve aparecer em telas que o cliente veja.
+- Termos técnicos do setor (prêmio, franquia, apólice, endosso, sinistro, bônus) são do vocabulário do corretor; em telas que serão mostradas ao cliente final, precisam de explicação simples.
+- Erros de cadastro geram retrabalho (recusa, endosso, cotação refeita): validação clara no momento do preenchimento evita custo depois.`
+  },
+  {
     id: 'navegacao',
     title: 'Arquitetura de informação e navegação',
     when: (t) => t.navigation || t.firstScreen,
@@ -254,6 +268,7 @@ export function screenTraits(analysis: any, screen: any, index: number): Traits 
     personalData: has(`${labels} ${text}`, /cpf|cnpj|rg\b|nascimento|e-?mail|telefone|celular|endere[cç]o|cep|nome completo|renda/),
     payment: has(text, /pagamento|pagar|cart[aã]o|boleto|pix|parcel|r\$/),
     insurance: has(text, /seguro|segurad|ap[oó]lice|cobertura|franquia|sinistro|pr[eê]mio|corretor|cota[cç][aã]o|assist[eê]ncia/),
+    broker: has(`${analysis.audience || ''} ${analysis.goal || ''} ${text}`, /corretor|corretagem|susep|comiss[aã]o|multic[aá]lculo/),
     longText: String(ctx.text || '').length > 1500,
     firstScreen: index === 0
   };
@@ -264,4 +279,31 @@ export function knowledgeFor(analysis: any, screen: any, index: number) {
   const t = screenTraits(analysis, screen, index);
   const blocks = BLOCKS.filter((b) => b.when(t));
   return { traits: t, ids: blocks.map((b) => b.id), text: blocks.map((b) => `## ${b.title}\n${b.text}`).join('\n\n') };
+}
+
+
+/**
+ * Biblioteca de consulta do agente (interna, nunca exibida): cada regra ganha um código "bloco.n".
+ * O agente precisa amarrar tudo o que diz a esses códigos; o que não tiver base é descartado.
+ */
+export function libraryFor(analysis: any, screen: any, index: number, extra: string[] = []) {
+  const t = screenTraits(analysis, screen, index);
+  // na conversa o corretor é o público padrão do produto
+  const blocks = BLOCKS.filter((b) => b.when(t) || extra.includes(b.id) || b.id === 'corretagem');
+  const ids = new Set<string>();
+  const lines: string[] = [];
+  for (const b of blocks) {
+    lines.push(`## ${b.title}`);
+    let n = 0;
+    for (const raw of b.text.split('\n')) {
+      if (/^- /.test(raw)) {
+        n++;
+        const id = `${b.id}.${n}`;
+        ids.add(id);
+        lines.push(`[${id}] ${raw.slice(2)}`);
+      } else if (raw.trim()) lines.push(`      ${raw.trim()}`);
+    }
+    lines.push('');
+  }
+  return { text: lines.join('\n'), ids, blocks: blocks.map((b) => b.id) };
 }

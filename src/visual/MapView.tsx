@@ -21,7 +21,10 @@ export const MapView: React.FC<{
   /** Pontos numerados (ex.: problemas de acessibilidade), em coordenadas da imagem */
   markers?: { n: number; box: { x: number; y: number; w: number; h: number }; active?: boolean }[];
   onMarker?: (n: number) => void;
-}> = ({ screen, field, mode, aois, showAois, drawing, selected, onSelect, onDrawn, canvasRef, markers, onMarker }) => {
+  markerTone?: 'rose' | 'violet';
+  /** Clique simples na tela (coordenadas da imagem), usado para perguntar sobre uma parte */
+  onPick?: (p: { x: number; y: number }) => void;
+}> = ({ screen, field, mode, aois, showAois, drawing, selected, onSelect, onDrawn, canvasRef, markers, onMarker, markerTone = 'rose', onPick }) => {
   const layer = useRef<HTMLCanvasElement | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -65,8 +68,11 @@ export const MapView: React.FC<{
         const p = toImg(e);
         setDrag({ ...drag, x1: p.x, y1: p.y });
       }}
-      onPointerUp={() => {
-        if (!drag) return;
+      onPointerUp={(e) => {
+        if (!drag) {
+          if (onPick && !drawing) onPick(toImg(e));
+          return;
+        }
         const r = { x: Math.min(drag.x0, drag.x1), y: Math.min(drag.y0, drag.y1), w: Math.abs(drag.x1 - drag.x0), h: Math.abs(drag.y1 - drag.y0) };
         setDrag(null);
         if (r.w > 8 && r.h > 8) onDrawn?.({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) });
@@ -106,23 +112,34 @@ export const MapView: React.FC<{
           </button>
         ))}
 
-      {(markers || []).map((m) => (
-        <React.Fragment key={m.n}>
-          <div
-            className={`absolute border-2 rounded pointer-events-none ${m.active ? 'border-rose-600 bg-rose-500/10' : 'border-rose-500/80'}`}
-            style={{ left: pct(m.box.x, W), top: pct(m.box.y, H), width: pct(Math.max(m.box.w, 6), W), height: pct(Math.max(m.box.h, 6), H) }}
-          />
-          <button
-            type="button"
-            onClick={() => onMarker?.(m.n)}
-            className={`absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full text-[11px] font-bold text-white flex items-center justify-center shadow ring-2 ring-white ${m.active ? 'bg-rose-700 scale-110' : 'bg-rose-600'}`}
-            style={{ left: pct(m.box.x + m.box.w, W), top: pct(m.box.y, H) }}
-            aria-label={`Ponto ${m.n}`}
-          >
-            {m.n}
-          </button>
-        </React.Fragment>
-      ))}
+      {(markers || []).map((m) => {
+        const v = markerTone === 'violet';
+        return (
+          <React.Fragment key={m.n}>
+            <div
+              className={`absolute border-2 rounded pointer-events-none ${
+                v ? (m.active ? 'border-violet-600 bg-violet-500/15' : 'border-violet-500/80') : m.active ? 'border-rose-600 bg-rose-500/10' : 'border-rose-500/80'
+              }`}
+              style={{ left: pct(m.box.x, W), top: pct(m.box.y, H), width: pct(Math.max(m.box.w, 6), W), height: pct(Math.max(m.box.h, 6), H) }}
+            />
+            <button
+              type="button"
+              onPointerUp={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarker?.(m.n);
+              }}
+              className={`absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full text-[11px] font-bold text-white flex items-center justify-center shadow ring-2 ring-white ${
+                v ? (m.active ? 'bg-violet-800 scale-110' : 'bg-violet-600') : m.active ? 'bg-rose-700 scale-110' : 'bg-rose-600'
+              }`}
+              style={{ left: pct(m.box.x + m.box.w, W), top: pct(m.box.y, H) }}
+              aria-label={`Ponto ${m.n}`}
+            >
+              {m.n}
+            </button>
+          </React.Fragment>
+        );
+      })}
 
       {drag && (
         <div
